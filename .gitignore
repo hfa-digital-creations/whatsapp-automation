@@ -1,0 +1,47 @@
+# --- Dependencies ---
+node_modules/
+
+# --- Secrets — never commit real environment values ---
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+!.env.example
+
+# --- Build output ---
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# --- WhatsApp session data (persisted separately via Docker volume in prod) ---
+.wwebjs_auth/
+.wwebjs_cache/
+
+# --- Logs ---
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# --- Lock files are generated fresh inside Docker on every build (see
+# backend/Dockerfile, frontend/Dockerfile) — never committed from the host,
+# where one occasionally appears as a stray artifact from a local install/audit. ---
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# --- Editor / OS ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Claude Code local settings (machine-specific permissions) ---
+.claude/settings.local.json
+
+# --- Never commit private keys or certificates ---
+*.pem
+*.key
