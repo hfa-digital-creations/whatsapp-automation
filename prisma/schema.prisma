@@ -1,0 +1,668 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  CLIENT
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  BLOCKED
+  EXPIRED
+  DELETED
+}
+
+enum DurationType {
+  DAYS
+  MONTHS
+  YEARS
+}
+
+enum PlanStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum VoucherStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
+
+enum PaymentType {
+  SUBSCRIPTION
+  RENEWAL
+  ADDITIONAL_ACCOUNT
+}
+
+enum WhatsappAccountStatus {
+  PENDING
+  QR_REQUIRED
+  CONNECTING
+  CONNECTED
+  DISCONNECTED
+  AUTHENTICATED
+  LOGGED_OUT
+  ERROR
+}
+
+enum TrainingSourceType {
+  TEXT
+  PDF
+  DOC
+  DOCX
+  TXT
+  CSV
+}
+
+enum TrainingSourceStatus {
+  PENDING
+  PROCESSED
+  FAILED
+}
+
+enum AutomationMode {
+  FULL_AUTONOMOUS
+  DRAFT_APPROVE
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum LeadStatus {
+  NEW
+  QUALIFIED
+  CONVERTED
+  LOST
+}
+
+enum EnquiryStatus {
+  NEW
+  CONTACTED
+  INTERESTED
+  FOLLOW_UP
+  CONVERTED
+  NOT_INTERESTED
+  CLOSED
+}
+
+enum CampaignType {
+  RENEWAL
+  OFFER
+  ENQUIRY_FOLLOWUP
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  COMPLETED
+  CANCELLED
+}
+
+// ---------------------------------------------------------------------------
+// Auth / Users
+// ---------------------------------------------------------------------------
+
+model User {
+  id                String     @id @default(uuid())
+  email             String     @unique
+  phone             String?
+  passwordHash      String
+  role              UserRole
+  status            UserStatus @default(PENDING)
+  mustChangePassword Boolean   @default(true)
+  lastLoginAt       DateTime?
+  deletedAt         DateTime?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  client            Client?
+  refreshTokens     RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  loginOtps         LoginOtp[]
+  phoneChangeOtps   PhoneChangeOtp[]
+  auditLogs         AuditLog[]       @relation("AuditLogAdmin")
+  notifications     Notification[]
+  approvedMessages  ConversationMessage[] @relation("ApprovedByUser")
+
+  @@index([role, status])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([tokenHash])
+}
+
+// Email one-time-passcode required after a correct password on every login (2FA).
+model LoginOtp {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash   String
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// WhatsApp one-time-passcode required before a client's own account phone number can change.
+model PhoneChangeOtp {
+  id                 String    @id @default(uuid())
+  userId             String
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  newPhone           String
+  // codeHash is reused across both stages of this request: first it hashes the
+  // code sent to the OLD (current) number, then once that's verified it's
+  // overwritten with the hash of a fresh code sent to newPhone. oldPhoneVerifiedAt
+  // is the gate — the new-number code can never be confirmed until it's set,
+  // so an attacker with just a stolen session can't redirect notifications
+  // without also controlling the client's current WhatsApp number.
+  codeHash           String
+  attempts           Int       @default(0)
+  expiresAt          DateTime
+  oldPhoneVerifiedAt DateTime?
+  consumedAt         DateTime?
+  createdAt          DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Clients / Subscriptions
+// ---------------------------------------------------------------------------
+
+model Client {
+  id                  String    @id @default(uuid())
+  userId              String    @unique
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessName        String
+  planId              String?
+  plan                Plan?     @relation(fields: [planId], references: [id])
+  whatsappAccountLimitOverride Int?
+  subscriptionStart   DateTime?
+  subscriptionEnd     DateTime?
+  automationMode      AutomationMode @default(DRAFT_APPROVE)
+  fallbackMessage     String    @default("I don't have that information available right now. I'll get the team to confirm it for you.")
+  defaultPaymentLink  String?
+  conversationFlow    String?
+  // Admin-controlled per client: whether this client's login requires the emailed
+  // OTP second factor. Defaults to on (matches every other account); admins can
+  // turn it off for a specific client from Client Detail.
+  loginOtpEnabled     Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  featureOverrides    ClientFeatureOverride[]
+  payments            Payment[]
+  activationHistory   ActivationHistory[]
+  whatsappAccounts    WhatsappAccount[]
+  trainingSources     BusinessTrainingSource[]
+  businessKnowledge   BusinessKnowledge[]
+  automationSettings  AutomationSettings?
+  conversations       CustomerConversation[]
+  leads               CustomerLead[]
+  quotationTemplates  QuotationTemplate[]
+  quotations          Quotation[]
+  branding            ClientBranding?
+  voucherUsages       VoucherUsage[]
+  campaignMessages    CampaignMessage[]
+
+  @@index([planId])
+}
+
+model Plan {
+  id                     String       @id @default(uuid())
+  name                   String
+  title                  String
+  shortDescription       String?
+  fullDescription        String?
+  price                  Decimal      @db.Decimal(12, 2)
+  currency               String       @default("INR")
+  durationValue          Int
+  durationType           DurationType
+  whatsappAccountLimit   Int          @default(1)
+  additionalAccountPrice Decimal      @db.Decimal(12, 2) @default(0)
+  status                 PlanStatus   @default(ACTIVE)
+  displayOrder           Int          @default(0)
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  clients                Client[]
+  planFeatures            PlanFeature[]
+  payments               Payment[]
+  activationHistory      ActivationHistory[]
+
+  @@index([status, displayOrder])
+}
+
+model Feature {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+
+  planFeatures     PlanFeature[]
+  clientOverrides  ClientFeatureOverride[]
+}
+
+model PlanFeature {
+  id        String  @id @default(uuid())
+  planId    String
+  plan      Plan    @relation(fields: [planId], references: [id], onDelete: Cascade)
+  featureId String
+  feature   Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  enabled   Boolean @default(true)
+
+  @@unique([planId, featureId])
+}
+
+model ClientFeatureOverride {
+  id        String  @id @default(uuid())
+  clientId  String
+  client    Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  featureId String
+  feature   Feature @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  enabled   Boolean
+
+  @@unique([clientId, featureId])
+}
+
+// ---------------------------------------------------------------------------
+// Vouchers / Payments
+// ---------------------------------------------------------------------------
+
+model Voucher {
+  id                  String        @id @default(uuid())
+  code                String        @unique
+  discountType        DiscountType
+  discountValue       Decimal       @db.Decimal(12, 2)
+  maxUsage            Int?
+  perUserUsageLimit   Int           @default(1)
+  startDate           DateTime?
+  expiryDate          DateTime?
+  minPurchaseAmount   Decimal       @db.Decimal(12, 2) @default(0)
+  status              VoucherStatus @default(ACTIVE)
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  usages              VoucherUsage[]
+  payments            Payment[]
+
+  @@index([status])
+}
+
+model VoucherUsage {
+  id        String   @id @default(uuid())
+  voucherId String
+  voucher   Voucher  @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  amount    Decimal  @db.Decimal(12, 2)
+  usedAt    DateTime @default(now())
+
+  @@index([voucherId, clientId])
+}
+
+model Payment {
+  id          String        @id @default(uuid())
+  clientId    String
+  client      Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  planId      String?
+  plan        Plan?         @relation(fields: [planId], references: [id])
+  voucherId   String?
+  voucher     Voucher?      @relation(fields: [voucherId], references: [id])
+  amount      Decimal       @db.Decimal(12, 2)
+  currency    String        @default("INR")
+  status      PaymentStatus @default(PENDING)
+  type        PaymentType
+  gateway     String?
+  gatewayRef  String?
+  requestedActivation Boolean @default(false)
+  paidAt      DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([clientId, status])
+}
+
+model ActivationHistory {
+  id                String   @id @default(uuid())
+  clientId          String
+  client            Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  adminId           String
+  planId            String?
+  plan              Plan?    @relation(fields: [planId], references: [id])
+  activatedAt       DateTime @default(now())
+  subscriptionStart DateTime
+  subscriptionEnd   DateTime
+  note              String?
+
+  @@index([clientId])
+}
+
+// ---------------------------------------------------------------------------
+// WhatsApp
+// ---------------------------------------------------------------------------
+
+model WhatsappAccount {
+  id                String                 @id @default(uuid())
+  clientId          String
+  client            Client                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  sessionId         String                 @unique
+  phoneNumber       String?
+  displayName       String?
+  status            WhatsappAccountStatus  @default(PENDING)
+  lastConnectedAt   DateTime?
+  lastDisconnectedAt DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  conversations     CustomerConversation[]
+
+  @@index([clientId])
+}
+
+// ---------------------------------------------------------------------------
+// Training / Knowledge (Phase 2 logic, schema only for now)
+// ---------------------------------------------------------------------------
+
+model BusinessTrainingSource {
+  id        String                @id @default(uuid())
+  clientId  String
+  client    Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  title     String
+  type      TrainingSourceType
+  content   String?
+  fileName  String?
+  filePath  String?
+  status    TrainingSourceStatus  @default(PENDING)
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+
+  knowledge BusinessKnowledge[]
+
+  @@index([clientId])
+}
+
+model BusinessKnowledge {
+  id        String                   @id @default(uuid())
+  clientId  String
+  client    Client                   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  sourceId  String?
+  source    BusinessTrainingSource?  @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  category  String
+  key       String
+  value     String
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+
+  @@index([clientId, category])
+}
+
+model AutomationSettings {
+  id                  String   @id @default(uuid())
+  clientId            String   @unique
+  client               Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  mode                AutomationMode @default(DRAFT_APPROVE)
+  fallbackMessage     String?
+  workingHours        Json?
+  maxAutoMessagesPerDay Int?
+  renewalReminderDays Json?    @default("[7,3,1,0]")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Conversations / Leads (Phase 2 logic, schema only for now)
+// ---------------------------------------------------------------------------
+
+model CustomerConversation {
+  id                String            @id @default(uuid())
+  clientId          String
+  client            Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  whatsappAccountId String
+  whatsappAccount   WhatsappAccount   @relation(fields: [whatsappAccountId], references: [id], onDelete: Cascade)
+  customerPhone     String
+  customerName      String?
+  leadStatus        LeadStatus        @default(NEW)
+  assignedToUserId  String?
+  preferredLanguage String?
+  lastMessageAt     DateTime?
+  // Soft delete only — moves the contact/conversation to the client's Trash.
+  // Never touches the real WhatsApp account/contact; a new inbound message
+  // from the same customer clears this automatically (see findOrCreate).
+  deletedAt         DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  messages          ConversationMessage[]
+  leads             CustomerLead[]
+  quotations        Quotation[]
+
+  @@unique([whatsappAccountId, customerPhone])
+  @@index([clientId, customerPhone])
+  @@index([clientId, deletedAt])
+}
+
+model ConversationMessage {
+  id                  String            @id @default(uuid())
+  conversationId      String
+  conversation        CustomerConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  direction           MessageDirection
+  messageType         String            @default("text")
+  content             String
+  status              MessageStatus     @default(QUEUED)
+  automationGenerated Boolean           @default(false)
+  approvedByUserId    String?
+  approvedByUser      User?             @relation("ApprovedByUser", fields: [approvedByUserId], references: [id])
+  createdAt           DateTime          @default(now())
+
+  @@index([conversationId])
+}
+
+model CustomerLead {
+  id             String    @id @default(uuid())
+  conversationId String
+  conversation   CustomerConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  clientId       String
+  client         Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  status         LeadStatus @default(NEW)
+  collectedInfo  Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([clientId, status])
+}
+
+// ---------------------------------------------------------------------------
+// Quotations (Phase 2 logic, schema only for now)
+// ---------------------------------------------------------------------------
+
+model QuotationTemplate {
+  id               String   @id @default(uuid())
+  clientId         String
+  client           Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  service          String
+  startingPrice    Decimal  @db.Decimal(12, 2)
+  pricingMethod    String?
+  requiredInfo     Json?
+  templateText     String?
+  paymentTerms     String?
+  validityDays     Int      @default(7)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  quotations       Quotation[]
+
+  @@index([clientId])
+}
+
+model Quotation {
+  id             String   @id @default(uuid())
+  clientId       String
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  conversationId String?
+  conversation   CustomerConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  templateId     String?
+  template       QuotationTemplate? @relation(fields: [templateId], references: [id])
+  generatedText  String
+  amount         Decimal  @db.Decimal(12, 2)
+  status         String   @default("DRAFT")
+  sentAt         DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([clientId])
+}
+
+// ---------------------------------------------------------------------------
+// Enquiries / Campaigns
+// ---------------------------------------------------------------------------
+
+model Enquiry {
+  id           String        @id @default(uuid())
+  name         String
+  phone        String
+  email        String?
+  businessName String?
+  businessType String?
+  message      String?
+  status       EnquiryStatus @default(NEW)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  campaignMessages CampaignMessage[]
+
+  @@index([status])
+}
+
+model Campaign {
+  id        String         @id @default(uuid())
+  name      String
+  type      CampaignType
+  config    Json?
+  status    CampaignStatus @default(DRAFT)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  messages  CampaignMessage[]
+}
+
+model CampaignMessage {
+  id          String   @id @default(uuid())
+  campaignId  String
+  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  clientId    String?
+  client      Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  enquiryId   String?
+  enquiry     Enquiry? @relation(fields: [enquiryId], references: [id], onDelete: SetNull)
+  content     String
+  status      MessageStatus @default(QUEUED)
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([campaignId])
+}
+
+// ---------------------------------------------------------------------------
+// Branding / Audit / Notifications
+// ---------------------------------------------------------------------------
+
+model ClientBranding {
+  id             String  @id @default(uuid())
+  clientId       String  @unique
+  client         Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  logoUrl        String?
+  primaryColor   String? @default("#F97316")
+  secondaryColor String? @default("#FFFFFF")
+  accentColor    String? @default("#1F2937")
+  theme          String? @default("light")
+  loginBranding  Json?
+  updatedAt      DateTime @updatedAt
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  adminId    String
+  admin      User     @relation("AuditLogAdmin", fields: [adminId], references: [id])
+  action     String
+  targetType String?
+  targetId   String?
+  metadata   Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([adminId, createdAt])
+  @@index([targetType, targetId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+}
