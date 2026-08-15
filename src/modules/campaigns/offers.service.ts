@@ -70,21 +70,37 @@ export class OffersService {
     return this.campaignsService.listMessages(campaignId);
   }
 
-  /** Blocked while RUNNING so a delete can never race an in-progress batched send. Cascades to its CampaignMessages. */
-  async delete(campaignId: string) {
+  listTrash() {
+    return this.campaignsService.listTrash(CampaignType.OFFER);
+  }
+
+  /** Blocked while RUNNING so a trash action can never race an in-progress batched send. Media/history are kept in case of restore. */
+  async moveToTrash(campaignId: string) {
     const campaign = await this.campaignsService.getById(campaignId);
     if (campaign.type !== CampaignType.OFFER) throw new BadRequestException('Not an offer campaign.');
     if (campaign.status === CampaignStatus.RUNNING) {
       throw new BadRequestException('This campaign is currently sending — wait for it to finish before deleting it.');
     }
+    return this.campaignsService.softDelete(campaignId);
+  }
+
+  async restore(campaignId: string) {
+    const campaign = await this.campaignsService.getById(campaignId);
+    if (campaign.type !== CampaignType.OFFER) throw new BadRequestException('Not an offer campaign.');
+    return this.campaignsService.restore(campaignId);
+  }
+
+  /** Only ever called on an already-trashed campaign — removes its attached media file and cascades to its CampaignMessages. */
+  async permanentlyDelete(campaignId: string) {
+    const campaign = await this.campaignsService.getById(campaignId);
+    if (campaign.type !== CampaignType.OFFER) throw new BadRequestException('Not an offer campaign.');
 
     const config = campaign.config as OfferCampaignConfig | null;
     if (config?.mediaUrl) {
       fs.rmSync(this.resolveMediaPath(config.mediaUrl), { force: true });
     }
 
-    await this.prisma.campaign.delete({ where: { id: campaignId } });
-    return { deleted: true };
+    return this.campaignsService.permanentlyDelete(campaignId);
   }
 
   /** Stores an uploaded image/video/PDF to disk and returns the details to attach to an offer campaign. */
@@ -129,6 +145,7 @@ export class OffersService {
   async prepareSend(campaignId: string, messageOverride?: string) {
     const campaign = await this.campaignsService.getById(campaignId);
     if (campaign.type !== CampaignType.OFFER) throw new BadRequestException('Not an offer campaign.');
+    if (campaign.deletedAt) throw new BadRequestException('This campaign is in the trash — restore it first.');
     if (campaign.status === CampaignStatus.RUNNING) {
       throw new BadRequestException('This campaign is already being sent.');
     }

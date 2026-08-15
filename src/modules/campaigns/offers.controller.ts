@@ -27,6 +27,11 @@ export class OffersController {
     return this.offersService.list();
   }
 
+  @Get('trash')
+  listTrash() {
+    return this.offersService.listTrash();
+  }
+
   @Get(':id/messages')
   getMessages(@Param('id') id: string) {
     return this.offersService.getMessages(id);
@@ -96,12 +101,39 @@ export class OffersController {
     return { queued: true };
   }
 
+  /** Moves the campaign to trash — blocked while RUNNING. Restorable until permanently deleted. */
   @Delete(':id')
-  async delete(@Param('id') id: string, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
-    const result = await this.offersService.delete(id);
+  async moveToTrash(@Param('id') id: string, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
+    const result = await this.offersService.moveToTrash(id);
     await this.auditLogService.record({
       adminId: admin.userId,
-      action: 'OFFER_CAMPAIGN_DELETED',
+      action: 'OFFER_CAMPAIGN_TRASHED',
+      targetType: 'Campaign',
+      targetId: id,
+      ipAddress: req.ip,
+    });
+    return result;
+  }
+
+  @Post(':id/restore')
+  async restore(@Param('id') id: string, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
+    const result = await this.offersService.restore(id);
+    await this.auditLogService.record({
+      adminId: admin.userId,
+      action: 'OFFER_CAMPAIGN_RESTORED',
+      targetType: 'Campaign',
+      targetId: id,
+      ipAddress: req.ip,
+    });
+    return result;
+  }
+
+  @Delete(':id/permanent')
+  async permanentlyDelete(@Param('id') id: string, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
+    const result = await this.offersService.permanentlyDelete(id);
+    await this.auditLogService.record({
+      adminId: admin.userId,
+      action: 'OFFER_CAMPAIGN_PERMANENTLY_DELETED',
       targetType: 'Campaign',
       targetId: id,
       ipAddress: req.ip,

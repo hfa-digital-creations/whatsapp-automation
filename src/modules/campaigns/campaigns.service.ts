@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CampaignStatus, CampaignType, MessageStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 
@@ -55,13 +55,42 @@ export class CampaignsService {
   }
 
   list(type?: CampaignType) {
-    return this.prisma.campaign.findMany({ where: { type }, orderBy: { createdAt: 'desc' } });
+    return this.prisma.campaign.findMany({ where: { type, deletedAt: null }, orderBy: { createdAt: 'desc' } });
+  }
+
+  /** Campaigns the admin has moved to trash, awaiting either restore or permanent removal. */
+  listTrash(type?: CampaignType) {
+    return this.prisma.campaign.findMany({
+      where: { type, deletedAt: { not: null } },
+      orderBy: { deletedAt: 'desc' },
+    });
   }
 
   async getById(id: string) {
     const campaign = await this.prisma.campaign.findUnique({ where: { id } });
     if (!campaign) throw new NotFoundException('Campaign not found.');
     return campaign;
+  }
+
+  async softDelete(id: string) {
+    await this.getById(id);
+    await this.prisma.campaign.update({ where: { id }, data: { deletedAt: new Date() } });
+    return { deleted: true };
+  }
+
+  async restore(id: string) {
+    await this.getById(id);
+    await this.prisma.campaign.update({ where: { id }, data: { deletedAt: null } });
+    return { restored: true };
+  }
+
+  async permanentlyDelete(id: string) {
+    const campaign = await this.getById(id);
+    if (!campaign.deletedAt) {
+      throw new BadRequestException('Only trashed campaigns can be permanently deleted — move it to trash first.');
+    }
+    await this.prisma.campaign.delete({ where: { id } });
+    return { deleted: true };
   }
 
   updateStatus(id: string, status: CampaignStatus) {
