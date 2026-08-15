@@ -5,7 +5,7 @@ import { Badge, Button, Card, ErrorText, Input, Select, TabPanel, Tabs, Textarea
 
 interface Feature { id: string; code: string; name: string; }
 interface Plan {
-  id: string; name: string; title: string; shortDescription?: string; price: string; currency: string;
+  id: string; name: string; title: string; shortDescription?: string; fullDescription?: string; price: string; currency: string;
   durationValue: number; durationType: string; whatsappAccountLimit: number; additionalAccountPrice: string;
   status: string; displayOrder: number; planFeatures: { feature: Feature }[];
 }
@@ -22,6 +22,7 @@ export default function AdminPlans() {
   const [error, setError] = useState('');
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
   const [showCreate, setShowCreate] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const { data: plans } = useQuery<Plan[]>({
     queryKey: ['admin-plans'],
@@ -45,8 +46,24 @@ export default function AdminPlans() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-plans'] });
-      setForm(EMPTY_FORM);
-      setShowCreate(false);
+      closeForm();
+    },
+    onError: (err) => setError(apiErrorMessage(err)),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: () =>
+      api.patch(`/admin/plans/${editingId}`, {
+        ...form,
+        price: Number(form.price),
+        durationValue: Number(form.durationValue),
+        whatsappAccountLimit: Number(form.whatsappAccountLimit),
+        additionalAccountPrice: Number(form.additionalAccountPrice),
+        displayOrder: Number(form.displayOrder),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-plans'] });
+      closeForm();
     },
     onError: (err) => setError(apiErrorMessage(err)),
   });
@@ -64,7 +81,11 @@ export default function AdminPlans() {
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
-    createMutation.mutate();
+    if (editingId) {
+      updateMutation.mutate();
+    } else {
+      createMutation.mutate();
+    }
   }
 
   function toggleFeature(code: string) {
@@ -72,6 +93,33 @@ export default function AdminPlans() {
       ...f,
       featureCodes: f.featureCodes.includes(code) ? f.featureCodes.filter((c) => c !== code) : [...f.featureCodes, code],
     }));
+  }
+
+  function closeForm() {
+    setShowCreate(false);
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+    setError('');
+  }
+
+  function startEdit(plan: Plan) {
+    setEditingId(plan.id);
+    setForm({
+      name: plan.name,
+      title: plan.title,
+      shortDescription: plan.shortDescription ?? '',
+      fullDescription: plan.fullDescription ?? '',
+      price: String(plan.price),
+      currency: plan.currency,
+      durationValue: String(plan.durationValue),
+      durationType: plan.durationType,
+      whatsappAccountLimit: String(plan.whatsappAccountLimit),
+      additionalAccountPrice: String(plan.additionalAccountPrice),
+      displayOrder: String(plan.displayOrder),
+      featureCodes: plan.planFeatures.map((pf) => pf.feature.code),
+    });
+    setShowCreate(true);
+    setError('');
   }
 
   const filteredPlans = plans?.filter((p) => {
@@ -91,17 +139,17 @@ export default function AdminPlans() {
             Configure recurring pricing plans, duration limits, and bundled feature sets
           </p>
         </div>
-        <Button onClick={() => setShowCreate((s) => !s)} className="text-xs">
-          {showCreate ? 'Close Plan Creator' : '+ Create New Plan'}
+        <Button onClick={() => (showCreate ? closeForm() : setShowCreate(true))} className="text-xs">
+          {showCreate ? 'Close Plan Editor' : '+ Create New Plan'}
         </Button>
       </div>
 
-      {/* Plan Creator Form */}
+      {/* Plan Creator / Editor Form */}
       {showCreate && (
         <Card className="p-6 animate-tab-content">
           <h2 className="mb-4 text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-brand-500" />
-            Create New Plan
+            {editingId ? 'Edit Plan' : 'Create New Plan'}
           </h2>
           <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div>
@@ -168,9 +216,20 @@ export default function AdminPlans() {
               </div>
             </div>
             <div className="col-span-full flex items-center gap-3 pt-2">
-              <Button type="submit" disabled={createMutation.isPending} className="text-xs">
-                {createMutation.isPending ? 'Publishing Plan...' : 'Save & Publish Plan'}
+              <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending} className="text-xs">
+                {editingId
+                  ? updateMutation.isPending
+                    ? 'Saving Changes...'
+                    : 'Save Changes'
+                  : createMutation.isPending
+                    ? 'Publishing Plan...'
+                    : 'Save & Publish Plan'}
               </Button>
+              {editingId && (
+                <Button type="button" variant="secondary" className="text-xs" onClick={closeForm}>
+                  Cancel
+                </Button>
+              )}
               <ErrorText>{error}</ErrorText>
             </div>
           </form>
@@ -225,6 +284,9 @@ export default function AdminPlans() {
             </div>
 
             <div className="flex items-center gap-2 border-t border-slate-100 pt-4 dark:border-white/5">
+              <Button variant="secondary" className="text-xs px-3" onClick={() => startEdit(plan)}>
+                Edit
+              </Button>
               {plan.status === 'ACTIVE' ? (
                 <Button variant="secondary" className="flex-1 text-xs" onClick={() => statusMutation.mutate({ id: plan.id, status: 'INACTIVE' })}>
                   Deactivate
