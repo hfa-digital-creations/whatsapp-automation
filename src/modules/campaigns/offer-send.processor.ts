@@ -7,6 +7,8 @@ export interface OfferSendJobData {
   campaignId: string;
   target: OfferTarget;
   message: string;
+  /** Only set when target is SPECIFIC_CLIENTS. */
+  clientIds?: string[];
 }
 
 @Processor('offers')
@@ -19,8 +21,8 @@ export class OfferSendProcessor extends WorkerHost {
 
   async process(job: Job<OfferSendJobData>): Promise<void> {
     if (job.name !== 'send-offer') return;
-    const { campaignId, target, message } = job.data;
-    const result = await this.offersService.executeSend(campaignId, target, message);
+    const { campaignId, target, message, clientIds } = job.data;
+    const result = await this.offersService.executeSend(campaignId, target, message, clientIds);
     this.logger.log(`Offer campaign ${campaignId} complete: ${JSON.stringify(result)}`);
   }
 }

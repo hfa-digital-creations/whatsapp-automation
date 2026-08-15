@@ -12,7 +12,7 @@ import { CampaignsService } from './campaigns.service';
 import { batchPauseMs, humanSendDelayMs, sleep } from '../../common/utils/throttle';
 import { resolveOfferMediaRule } from './offer-media.util';
 
-export type OfferTarget = 'ALL_CLIENTS' | 'ACTIVE_CLIENTS';
+export type OfferTarget = 'ALL_CLIENTS' | 'ACTIVE_CLIENTS' | 'SPECIFIC_CLIENTS';
 export type OfferMediaType = 'IMAGE' | 'VIDEO' | 'DOCUMENT';
 
 interface OfferCampaignConfig {
@@ -134,7 +134,7 @@ export class OffersService {
    * a SENT CampaignMessage for this campaign are skipped, so nothing is sent twice and no
    * client is silently missed (spec: "no data should be loss").
    */
-  async executeSend(campaignId: string, target: OfferTarget, message: string) {
+  async executeSend(campaignId: string, target: OfferTarget, message: string, clientIds?: string[]) {
     const campaign = await this.campaignsService.getById(campaignId);
     const config = campaign.config as OfferCampaignConfig | null;
     const media =
@@ -157,7 +157,9 @@ export class OffersService {
             const status = this.subscriptionService.computeStatus(c);
             return status === 'ACTIVE' || status === 'EXPIRING_SOON';
           })
-        : clients;
+        : target === 'SPECIFIC_CLIENTS'
+          ? clients.filter((c) => (clientIds ?? []).includes(c.id))
+          : clients;
     const pendingClients = targetClients.filter((c) => !alreadySentIds.has(c.id));
 
     let sentCount = alreadySentIds.size;

@@ -69,10 +69,14 @@ export class OffersController {
     @CurrentUser() admin: AuthenticatedUser,
     @Req() req: any,
   ) {
+    if (dto.target === 'SPECIFIC_CLIENTS' && !dto.clientIds?.length) {
+      throw new BadRequestException('Select at least one client to send this offer to.');
+    }
+
     const { message } = await this.offersService.prepareSend(id, dto.messageOverride);
     await this.offersQueue.add(
       'send-offer',
-      { campaignId: id, target: dto.target, message },
+      { campaignId: id, target: dto.target, message, clientIds: dto.clientIds },
       {
         jobId: `offer-send-${id}`,
         attempts: 3,
@@ -86,7 +90,7 @@ export class OffersController {
       action: 'OFFER_CAMPAIGN_QUEUED',
       targetType: 'Campaign',
       targetId: id,
-      metadata: { target: dto.target },
+      metadata: { target: dto.target, clientCount: dto.clientIds?.length },
       ipAddress: req.ip,
     });
     return { queued: true };
