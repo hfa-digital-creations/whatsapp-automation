@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -94,5 +94,18 @@ export class OffersController {
       ipAddress: req.ip,
     });
     return { queued: true };
+  }
+
+  @Delete(':id')
+  async delete(@Param('id') id: string, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
+    const result = await this.offersService.delete(id);
+    await this.auditLogService.record({
+      adminId: admin.userId,
+      action: 'OFFER_CAMPAIGN_DELETED',
+      targetType: 'Campaign',
+      targetId: id,
+      ipAddress: req.ip,
+    });
+    return result;
   }
 }
