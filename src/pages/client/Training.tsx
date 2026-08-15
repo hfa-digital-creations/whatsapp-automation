@@ -15,8 +15,10 @@ const TONE: Record<string, 'gray' | 'green' | 'red' | 'amber'> = {
 export default function ClientTraining() {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const [activeInputTab, setActiveInputTab] = useState<'text' | 'document'>('text');
   const [activeViewTab, setActiveViewTab] = useState<'sources' | 'facts'>('sources');
+  const [importMessage, setImportMessage] = useState('');
 
   const { data: sources, isLoading } = useQuery<TrainingSource[]>({
     queryKey: ['client-training'],
@@ -56,6 +58,43 @@ export default function ClientTraining() {
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
+  const exportMutation = useMutation({
+    mutationFn: async () => (await api.get('/client/training/export')).data.data,
+    onSuccess: (data) => {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const safeName = (data.exportedFrom ?? 'business').replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+      a.href = url;
+      a.download = `${safeName}-training-export.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
+    onError: (err) => setError(apiErrorMessage(err)),
+  });
+
+  const importMutation = useMutation({
+    mutationFn: (file: File) => {
+      const form = new FormData();
+      form.append('file', file);
+      return api.post('/client/training/import', form);
+    },
+    onSuccess: (res) => {
+      setError('');
+      setImportMessage(`Imported ${res.data.data.imported} training source(s).`);
+      queryClient.invalidateQueries({ queryKey: ['client-training'] });
+      queryClient.invalidateQueries({ queryKey: ['client-knowledge'] });
+      if (importInputRef.current) importInputRef.current.value = '';
+      setTimeout(() => setImportMessage(''), 4000);
+    },
+    onError: (err) => {
+      setError(apiErrorMessage(err));
+      if (importInputRef.current) importInputRef.current.value = '';
+    },
+  });
+
   const reprocessMutation = useMutation({
     mutationFn: (id: string) => api.post(`/client/training/${id}/reprocess`),
     onSuccess: () => {
@@ -86,17 +125,50 @@ export default function ClientTraining() {
     }
   }
 
+  function handleImportFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) {
+      setError('');
+      setImportMessage('');
+      importMutation.mutate(file);
+    }
+  }
+
   return (
     <div className="space-y-8 animate-glass-entrance">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-          Business Knowledge &amp; AI Training
-        </h1>
-        <p className="text-xs text-slate-500 dark:text-slate-400">
-          Train your WhatsApp AI assistant with company catalogs, product prices, operating hours, and customer policies
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+            Business Knowledge &amp; AI Training
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Train your WhatsApp AI assistant with company catalogs, product prices, operating hours, and customer policies
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="secondary"
+            className="px-3 py-1.5 text-xs"
+            onClick={() => exportMutation.mutate()}
+            disabled={exportMutation.isPending || !sources?.length}
+          >
+            {exportMutation.isPending ? 'Exporting...' : '↓ Export Training Data'}
+          </Button>
+          <Button
+            variant="secondary"
+            className="px-3 py-1.5 text-xs"
+            onClick={() => importInputRef.current?.click()}
+            disabled={importMutation.isPending}
+          >
+            {importMutation.isPending ? 'Importing...' : '↑ Import Training Data'}
+          </Button>
+          <input ref={importInputRef} type="file" accept="application/json,.json" onChange={handleImportFileChange} className="hidden" />
+        </div>
       </div>
+      {importMessage && (
+        <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">{importMessage}</p>
+      )}
 
       {/* Input Section Card with Tabs */}
       <Card className="p-6">
