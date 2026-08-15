@@ -17,6 +17,12 @@ interface CampaignMessage {
   id: string; status: string; clientId: string | null;
 }
 
+interface ClientOption {
+  id: string;
+  businessName: string;
+  user: { email: string };
+}
+
 const STATUS_TONE: Record<string, 'gray' | 'green' | 'amber' | 'blue'> = {
   DRAFT: 'gray', SCHEDULED: 'blue', RUNNING: 'amber', COMPLETED: 'green', CANCELLED: 'gray',
 };
@@ -41,6 +47,29 @@ function CampaignProgress({ campaignId }: { campaignId: string }) {
     <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">
       Sending in background — {sent} sent{failed > 0 ? `, ${failed} failed` : ''} so far...
     </p>
+  );
+}
+
+function ClientPicker({
+  clients,
+  selected,
+  onToggle,
+}: {
+  clients: ClientOption[];
+  selected: string[];
+  onToggle: (clientId: string) => void;
+}) {
+  return (
+    <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-slate-200/60 bg-white/40 p-2 dark:border-white/10 dark:bg-white/[0.02]">
+      {clients.length === 0 && <p className="p-1 text-xs text-slate-400">No clients found.</p>}
+      {clients.map((client) => (
+        <label key={client.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-xs hover:bg-slate-500/5">
+          <input type="checkbox" checked={selected.includes(client.id)} onChange={() => onToggle(client.id)} className="accent-brand-500" />
+          <span className="text-slate-700 dark:text-slate-200">{client.businessName}</span>
+          <span className="truncate text-slate-400">{client.user.email}</span>
+        </label>
+      ))}
+    </div>
   );
 }
 
@@ -70,6 +99,7 @@ export default function AdminOffers() {
   const [form, setForm] = useState({ name: '', message: '', mediaUrl: '', mediaType: '' as OfferMediaType | '', mediaFileName: '' });
   const [aiPrompt, setAiPrompt] = useState('');
   const [target, setTarget] = useState<Record<string, string>>({});
+  const [selectedClients, setSelectedClients] = useState<Record<string, string[]>>({});
   const [error, setError] = useState('');
   const [result, setResult] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'ACTIVE' | 'COMPLETED'>('ALL');
@@ -79,6 +109,11 @@ export default function AdminOffers() {
     queryKey: ['admin-offers'],
     queryFn: async () => (await api.get('/admin/offers')).data.data,
     refetchInterval: (query) => (query.state.data?.some((c) => c.status === 'RUNNING') ? 5000 : false),
+  });
+
+  const { data: clientOptions } = useQuery<ClientOption[]>({
+    queryKey: ['admin-offer-client-options'],
+    queryFn: async () => (await api.get('/admin/clients', { params: { take: 500 } })).data.data.items,
   });
 
   const createMutation = useMutation({
@@ -126,7 +161,13 @@ export default function AdminOffers() {
   });
 
   const sendMutation = useMutation({
-    mutationFn: (id: string) => api.post(`/admin/offers/${id}/send`, { target: target[id] ?? 'ACTIVE_CLIENTS' }),
+    mutationFn: (id: string) => {
+      const chosenTarget = target[id] ?? 'ACTIVE_CLIENTS';
+      return api.post(`/admin/offers/${id}/send`, {
+        target: chosenTarget,
+        clientIds: chosenTarget === 'SPECIFIC_CLIENTS' ? selectedClients[id] ?? [] : undefined,
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-offers'] });
       setResult('Broadcast queued — sending in small batches with safety pauses in the background. Progress shows on the campaign card below.');
@@ -134,6 +175,14 @@ export default function AdminOffers() {
     },
     onError: (err) => setError(apiErrorMessage(err)),
   });
+
+  function toggleSelectedClient(campaignId: string, clientId: string) {
+    setSelectedClients((s) => {
+      const current = s[campaignId] ?? [];
+      const next = current.includes(clientId) ? current.filter((id) => id !== clientId) : [...current, clientId];
+      return { ...s, [campaignId]: next };
+    });
+  }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -302,22 +351,35 @@ export default function AdminOffers() {
               )}
 
               {c.status === 'DRAFT' && (
-                <div className="mt-4 flex items-center gap-2.5 border-t border-slate-100 pt-3 dark:border-white/5">
-                  <Select
-                    value={target[c.id] ?? 'ACTIVE_CLIENTS'}
-                    onChange={(e) => setTarget((t) => ({ ...t, [c.id]: e.target.value }))}
-                    className="text-xs"
-                  >
-                    <option value="ACTIVE_CLIENTS">Active clients only</option>
-                    <option value="ALL_CLIENTS">All clients</option>
-                  </Select>
-                  <Button
-                    className="px-3 py-1.5 text-xs whitespace-nowrap"
-                    onClick={() => sendMutation.mutate(c.id)}
-                    disabled={sendMutation.isPending}
-                  >
-                    {sendMutation.isPending ? 'Queuing...' : 'Broadcast Now'}
-                  </Button>
+                <div className="mt-4 space-y-2.5 border-t border-slate-100 pt-3 dark:border-white/5">
+                  <div className="flex items-center gap-2.5">
+                    <Select
+                      value={target[c.id] ?? 'ACTIVE_CLIENTS'}
+                      onChange={(e) => setTarget((t) => ({ ...t, [c.id]: e.target.value }))}
+                      className="text-xs"
+                    >
+                      <option value="ACTIVE_CLIENTS">Active clients only</option>
+                      <option value="ALL_CLIENTS">All clients</option>
+                      <option value="SPECIFIC_CLIENTS">Specific client(s)...</option>
+                    </Select>
+                    <Button
+                      className="px-3 py-1.5 text-xs whitespace-nowrap"
+                      onClick={() => sendMutation.mutate(c.id)}
+                      disabled={
+                        sendMutation.isPending ||
+                        (target[c.id] === 'SPECIFIC_CLIENTS' && !(selectedClients[c.id]?.length))
+                      }
+                    >
+                      {sendMutation.isPending ? 'Queuing...' : 'Broadcast Now'}
+                    </Button>
+                  </div>
+                  {target[c.id] === 'SPECIFIC_CLIENTS' && (
+                    <ClientPicker
+                      clients={clientOptions ?? []}
+                      selected={selectedClients[c.id] ?? []}
+                      onToggle={(clientId) => toggleSelectedClient(c.id, clientId)}
+                    />
+                  )}
                 </div>
               )}
             </Card>
