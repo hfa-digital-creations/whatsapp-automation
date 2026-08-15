@@ -176,6 +176,15 @@ export default function AdminOffers() {
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/admin/offers/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-offers'] });
+      setError('');
+    },
+    onError: (err) => setError(apiErrorMessage(err)),
+  });
+
   function toggleSelectedClient(campaignId: string, clientId: string) {
     setSelectedClients((s) => {
       const current = s[campaignId] ?? [];
@@ -334,9 +343,21 @@ export default function AdminOffers() {
           {filteredCampaigns?.map((c) => (
             <Card key={c.id} hoverEffect className="p-6 flex flex-col justify-between">
               <div>
-                <div className="flex items-start justify-between">
+                <div className="flex items-start justify-between gap-2">
                   <h3 className="text-base font-bold text-slate-900 dark:text-white">{c.name}</h3>
-                  <Badge tone={STATUS_TONE[c.status] ?? 'gray'}>{c.status}</Badge>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Badge tone={STATUS_TONE[c.status] ?? 'gray'}>{c.status}</Badge>
+                    {c.status !== 'RUNNING' && (
+                      <Button
+                        variant="danger"
+                        className="px-2.5 py-1 text-[11px]"
+                        onClick={() => deleteMutation.mutate(c.id)}
+                        disabled={deleteMutation.isPending}
+                      >
+                        Delete
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <p className="mt-3 rounded-xl bg-white/40 p-3 text-xs text-slate-700 whitespace-pre-wrap border border-slate-200/50 dark:bg-white/[0.02] dark:border-white/5 dark:text-slate-300">
                   {c.config?.message}
