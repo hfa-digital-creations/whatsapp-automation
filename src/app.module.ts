@@ -32,6 +32,7 @@ import { AutomationModule } from './modules/automation/automation.module';
 import { QuotationsModule } from './modules/quotations/quotations.module';
 import { CampaignsModule } from './modules/campaigns/campaigns.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
+import { PlatformSettingsModule } from './modules/platform-settings/platform-settings.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { WebhooksModule } from './modules/webhooks/webhooks.module';
     QuotationsModule,
     CampaignsModule,
     WebhooksModule,
+    PlatformSettingsModule,
   ],
   providers: [
     // Order matters: authenticate -> enforce first-login password change -> check role.

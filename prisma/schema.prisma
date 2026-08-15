@@ -639,6 +639,13 @@ model ClientBranding {
   updatedAt      DateTime @updatedAt
 }
 
+/// Site-wide settings (not per-client). Only ever one row — created lazily on first read.
+model PlatformSettings {
+  id         String   @id @default(uuid())
+  faviconUrl String?
+  updatedAt  DateTime @updatedAt
+}
+
 model AuditLog {
   id         String   @id @default(uuid())
   adminId    String
