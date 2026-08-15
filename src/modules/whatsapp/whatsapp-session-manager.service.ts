@@ -108,7 +108,27 @@ export class WhatsappSessionManagerService implements OnModuleInit, OnModuleDest
       puppeteer: {
         headless: true,
         executablePath: executablePath || undefined,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+        // Beyond the baseline Docker flags, these specifically cut CPU/memory
+        // overhead per Chromium instance — meaningful on a low-vCPU host where
+        // launching a fresh session (a cold Chromium start + full page load,
+        // for a first-time QR) was measurably slow. No GPU exists to use, so
+        // disabling anything GPU-related removes a whole subprocess; the rest
+        // trim background work Chromium does that a headless WhatsApp session
+        // never benefits from.
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--disable-software-rasterizer',
+          '--disable-extensions',
+          '--disable-background-networking',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-renderer-backgrounding',
+          '--disable-breakpad',
+          '--no-zygote',
+        ],
         protocolTimeout: 300_000,
       },
     });
