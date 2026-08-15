@@ -1,10 +1,16 @@
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
 import { Badge, Button, Card, ErrorText, Input, Select, Spinner, Tabs, Textarea } from '../../components/ui';
 
+type OfferMediaType = 'IMAGE' | 'VIDEO' | 'DOCUMENT';
+
 interface Campaign {
-  id: string; name: string; status: string; createdAt: string; config: { message?: string } | null;
+  id: string;
+  name: string;
+  status: string;
+  createdAt: string;
+  config: { message?: string; mediaUrl?: string; mediaType?: OfferMediaType; mediaFileName?: string } | null;
 }
 
 interface CampaignMessage {
@@ -14,6 +20,8 @@ interface CampaignMessage {
 const STATUS_TONE: Record<string, 'gray' | 'green' | 'amber' | 'blue'> = {
   DRAFT: 'gray', SCHEDULED: 'blue', RUNNING: 'amber', COMPLETED: 'green', CANCELLED: 'gray',
 };
+
+const MEDIA_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/3gpp,application/pdf';
 
 /**
  * Sending now runs as a background job (batches of 5 with multi-minute pauses to stay
@@ -36,9 +44,31 @@ function CampaignProgress({ campaignId }: { campaignId: string }) {
   );
 }
 
+function CampaignMedia({ config }: { config: Campaign['config'] }) {
+  if (!config?.mediaUrl) return null;
+  if (config.mediaType === 'IMAGE') {
+    return <img src={config.mediaUrl} alt={config.mediaFileName ?? 'Attached image'} className="mt-2 h-28 w-full rounded-lg object-cover" />;
+  }
+  if (config.mediaType === 'VIDEO') {
+    return <video src={config.mediaUrl} controls className="mt-2 h-28 w-full rounded-lg bg-black" />;
+  }
+  return (
+    <a
+      href={config.mediaUrl}
+      target="_blank"
+      rel="noreferrer"
+      className="mt-2 flex items-center gap-2 rounded-lg border border-slate-200/60 bg-white/40 px-3 py-2 text-xs font-semibold text-brand-600 hover:underline dark:border-white/10 dark:bg-white/[0.02] dark:text-brand-400"
+    >
+      📄 {config.mediaFileName ?? 'Attached document'}
+    </a>
+  );
+}
+
 export default function AdminOffers() {
   const queryClient = useQueryClient();
-  const [form, setForm] = useState({ name: '', message: '' });
+  const mediaInputRef = useRef<HTMLInputElement>(null);
+  const [form, setForm] = useState({ name: '', message: '', mediaUrl: '', mediaType: '' as OfferMediaType | '', mediaFileName: '' });
+  const [aiPrompt, setAiPrompt] = useState('');
   const [target, setTarget] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [result, setResult] = useState<string | null>(null);
@@ -52,11 +82,45 @@ export default function AdminOffers() {
   });
 
   const createMutation = useMutation({
-    mutationFn: () => api.post('/admin/offers', form),
+    mutationFn: () =>
+      api.post('/admin/offers', {
+        name: form.name,
+        message: form.message,
+        mediaUrl: form.mediaUrl || undefined,
+        mediaType: form.mediaType || undefined,
+        mediaFileName: form.mediaFileName || undefined,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-offers'] });
-      setForm({ name: '', message: '' });
+      setForm({ name: '', message: '', mediaUrl: '', mediaType: '', mediaFileName: '' });
+      setAiPrompt('');
       setShowCreate(false);
+    },
+    onError: (err) => setError(apiErrorMessage(err)),
+  });
+
+  const uploadMediaMutation = useMutation({
+    mutationFn: (file: File) => {
+      const body = new FormData();
+      body.append('file', file);
+      return api.post('/admin/offers/media', body);
+    },
+    onSuccess: (res) => {
+      const { mediaUrl, mediaType, mediaFileName } = res.data.data;
+      setForm((f) => ({ ...f, mediaUrl, mediaType, mediaFileName }));
+      setError('');
+    },
+    onError: (err) => {
+      setError(apiErrorMessage(err));
+      if (mediaInputRef.current) mediaInputRef.current.value = '';
+    },
+  });
+
+  const generateTextMutation = useMutation({
+    mutationFn: () => api.post('/admin/offers/generate-message', { prompt: aiPrompt }),
+    onSuccess: (res) => {
+      setForm((f) => ({ ...f, message: res.data.data.message }));
+      setError('');
     },
     onError: (err) => setError(apiErrorMessage(err)),
   });
@@ -75,6 +139,16 @@ export default function AdminOffers() {
     e.preventDefault();
     setError('');
     createMutation.mutate();
+  }
+
+  function handleMediaChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) uploadMediaMutation.mutate(file);
+  }
+
+  function removeMedia() {
+    setForm((f) => ({ ...f, mediaUrl: '', mediaType: '', mediaFileName: '' }));
+    if (mediaInputRef.current) mediaInputRef.current.value = '';
   }
 
   const filteredCampaigns = campaigns?.filter((c) => {
@@ -117,6 +191,27 @@ export default function AdminOffers() {
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
               />
             </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Generate with AI (optional)</label>
+              <div className="flex items-center gap-2.5">
+                <Input
+                  placeholder="e.g. Diwali sale, 50% off annual plans, code DIWALI50"
+                  value={aiPrompt}
+                  onChange={(e) => setAiPrompt(e.target.value)}
+                  className="text-xs"
+                />
+                <Button
+                  type="button"
+                  className="px-3 py-1.5 text-xs whitespace-nowrap"
+                  disabled={!aiPrompt.trim() || generateTextMutation.isPending}
+                  onClick={() => generateTextMutation.mutate()}
+                >
+                  {generateTextMutation.isPending ? 'Writing...' : '✨ Generate'}
+                </Button>
+              </div>
+            </div>
+
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Broadcast Message</label>
               <Textarea
@@ -127,6 +222,33 @@ export default function AdminOffers() {
                 onChange={(e) => setForm({ ...form, message: e.target.value })}
               />
             </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Attach Image / Video / PDF (optional)</label>
+              {form.mediaUrl ? (
+                <div className="flex items-center gap-3 rounded-lg border border-slate-200/60 bg-white/40 p-2.5 dark:border-white/10 dark:bg-white/[0.02]">
+                  {form.mediaType === 'IMAGE' && <img src={form.mediaUrl} alt="" className="h-14 w-14 rounded-md object-cover" />}
+                  {form.mediaType === 'VIDEO' && <video src={form.mediaUrl} className="h-14 w-14 rounded-md bg-black object-cover" />}
+                  {form.mediaType === 'DOCUMENT' && <span className="text-2xl">📄</span>}
+                  <span className="flex-1 truncate text-xs text-slate-600 dark:text-slate-300">{form.mediaFileName}</span>
+                  <Button type="button" onClick={removeMedia} className="px-2 py-1 text-xs">
+                    Remove
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  onClick={() => mediaInputRef.current?.click()}
+                  disabled={uploadMediaMutation.isPending}
+                  className="px-3 py-1.5 text-xs"
+                >
+                  {uploadMediaMutation.isPending ? 'Uploading...' : '+ Attach File'}
+                </Button>
+              )}
+              <input ref={mediaInputRef} type="file" accept={MEDIA_ACCEPT} onChange={handleMediaChange} className="hidden" />
+              <p className="mt-1 text-[11px] text-slate-400">Images up to 5MB, video up to 16MB, PDF up to 16MB.</p>
+            </div>
+
             <div className="flex items-center gap-3">
               <Button type="submit" disabled={createMutation.isPending} className="text-xs">
                 {createMutation.isPending ? 'Saving...' : 'Create Campaign'}
@@ -170,6 +292,7 @@ export default function AdminOffers() {
                 <p className="mt-3 rounded-xl bg-white/40 p-3 text-xs text-slate-700 whitespace-pre-wrap border border-slate-200/50 dark:bg-white/[0.02] dark:border-white/5 dark:text-slate-300">
                   {c.config?.message}
                 </p>
+                <CampaignMedia config={c.config} />
               </div>
 
               {c.status === 'RUNNING' && (
