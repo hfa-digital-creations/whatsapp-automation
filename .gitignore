@@ -1,0 +1,39 @@
+# --- Dependencies ---
+node_modules/
+
+# --- Secrets — never commit real environment values ---
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+!.env.example
+
+# --- Build output ---
+dist/
+coverage/
+*.tsbuildinfo
+
+# --- WhatsApp session data (persisted separately via Docker volume in prod) ---
+.wwebjs_auth/
+.wwebjs_cache/
+
+# --- Logs ---
+*.log
+npm-debug.log*
+
+# --- Lock file — generated fresh inside Docker on every build (see Dockerfile),
+# never committed from the host. ---
+package-lock.json
+
+# --- Editor / OS ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Never commit private keys or certificates ---
+*.pem
+*.key
