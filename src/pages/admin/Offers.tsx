@@ -7,9 +7,34 @@ interface Campaign {
   id: string; name: string; status: string; createdAt: string; config: { message?: string } | null;
 }
 
+interface CampaignMessage {
+  id: string; status: string; clientId: string | null;
+}
+
 const STATUS_TONE: Record<string, 'gray' | 'green' | 'amber' | 'blue'> = {
   DRAFT: 'gray', SCHEDULED: 'blue', RUNNING: 'amber', COMPLETED: 'green', CANCELLED: 'gray',
 };
+
+/**
+ * Sending now runs as a background job (batches of 5 with multi-minute pauses to stay
+ * safe from WhatsApp's automated-behavior detection), so a RUNNING campaign can take
+ * several minutes to finish — this polls the recorded messages so the admin sees live
+ * progress instead of a single delayed result.
+ */
+function CampaignProgress({ campaignId }: { campaignId: string }) {
+  const { data: messages } = useQuery<CampaignMessage[]>({
+    queryKey: ['admin-offer-messages', campaignId],
+    queryFn: async () => (await api.get(`/admin/offers/${campaignId}/messages`)).data.data,
+    refetchInterval: 5000,
+  });
+  const sent = messages?.filter((m) => m.status === 'SENT').length ?? 0;
+  const failed = messages?.filter((m) => m.status === 'FAILED').length ?? 0;
+  return (
+    <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">
+      Sending in background — {sent} sent{failed > 0 ? `, ${failed} failed` : ''} so far...
+    </p>
+  );
+}
 
 export default function AdminOffers() {
   const queryClient = useQueryClient();
@@ -23,6 +48,7 @@ export default function AdminOffers() {
   const { data: campaigns, isLoading } = useQuery<Campaign[]>({
     queryKey: ['admin-offers'],
     queryFn: async () => (await api.get('/admin/offers')).data.data,
+    refetchInterval: (query) => (query.state.data?.some((c) => c.status === 'RUNNING') ? 5000 : false),
   });
 
   const createMutation = useMutation({
@@ -37,9 +63,9 @@ export default function AdminOffers() {
 
   const sendMutation = useMutation({
     mutationFn: (id: string) => api.post(`/admin/offers/${id}/send`, { target: target[id] ?? 'ACTIVE_CLIENTS' }),
-    onSuccess: (res) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-offers'] });
-      setResult(`Sent broadcast to ${res.data.data.sent} of ${res.data.data.targeted} client(s).`);
+      setResult('Broadcast queued — sending in small batches with safety pauses in the background. Progress shows on the campaign card below.');
       setError('');
     },
     onError: (err) => setError(apiErrorMessage(err)),
@@ -146,7 +172,13 @@ export default function AdminOffers() {
                 </p>
               </div>
 
-              {c.status !== 'COMPLETED' && (
+              {c.status === 'RUNNING' && (
+                <div className="mt-4 border-t border-slate-100 pt-3 dark:border-white/5">
+                  <CampaignProgress campaignId={c.id} />
+                </div>
+              )}
+
+              {c.status === 'DRAFT' && (
                 <div className="mt-4 flex items-center gap-2.5 border-t border-slate-100 pt-3 dark:border-white/5">
                   <Select
                     value={target[c.id] ?? 'ACTIVE_CLIENTS'}
@@ -161,7 +193,7 @@ export default function AdminOffers() {
                     onClick={() => sendMutation.mutate(c.id)}
                     disabled={sendMutation.isPending}
                   >
-                    {sendMutation.isPending ? 'Sending...' : 'Broadcast Now'}
+                    {sendMutation.isPending ? 'Queuing...' : 'Broadcast Now'}
                   </Button>
                 </div>
               )}
