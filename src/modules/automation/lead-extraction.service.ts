@@ -2,6 +2,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import { LeadStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { AiService } from '../../common/services/ai.service';
+import { WhatsappSessionManagerService } from '../whatsapp/whatsapp-session-manager.service';
+import { SYSTEM_WHATSAPP_SESSION_ID } from '../../common/constants';
+
+const FIELD_LABELS: Record<string, string> = {
+  name: 'Name', company: 'Company', email: 'Email', serviceRequired: 'Interested In', location: 'Location',
+  budget: 'Budget', preferredDate: 'Preferred Date', quantity: 'Quantity', notes: 'Notes',
+  participationType: 'Participation', category: 'Category', stallSize: 'Stall Size', previousParticipant: 'Exhibited Before',
+};
 
 const EXTRACTION_SYSTEM_PROMPT = `You extract customer lead information from a WhatsApp sales conversation.
 Read the conversation and output ONLY a JSON object with any of these fields the customer has explicitly
@@ -23,7 +31,11 @@ const QUALIFIED_FIELD_THRESHOLD = 3;
 export class LeadExtractionService {
   private readonly logger = new Logger(LeadExtractionService.name);
 
-  constructor(private readonly prisma: PrismaService, private readonly ai: AiService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ai: AiService,
+    private readonly sessionManager: WhatsappSessionManagerService,
+  ) {}
 
   /**
    * Best-effort structured extraction of customer-provided details (spec §12) —
@@ -58,6 +70,7 @@ export class LeadExtractionService {
     const existing = await this.prisma.customerLead.findFirst({ where: { conversationId } });
     const merged = { ...(existing?.collectedInfo as Record<string, string> | undefined), ...extracted };
     const status: LeadStatus = Object.keys(merged).length >= QUALIFIED_FIELD_THRESHOLD ? LeadStatus.QUALIFIED : LeadStatus.NEW;
+    const justQualified = status === LeadStatus.QUALIFIED && existing?.status !== LeadStatus.QUALIFIED;
 
     if (existing) {
       await this.prisma.customerLead.update({
@@ -71,5 +84,42 @@ export class LeadExtractionService {
     }
 
     await this.prisma.customerConversation.update({ where: { id: conversationId }, data: { leadStatus: status } });
+
+    if (justQualified) {
+      await this.notifyClientOfLead(clientId, conversationId, merged);
+    }
+  }
+
+  /**
+   * Sends the client a WhatsApp message with the full lead snapshot the moment
+   * a conversation first crosses the "qualified" threshold — via the platform's
+   * own admin-linked WhatsApp session (SYSTEM_WHATSAPP_SESSION_ID), not the
+   * client's customer-facing number, so it never mixes into customer chat
+   * history. Fires once per lead; later updates stay visible in the Contacts
+   * page rather than triggering repeat notifications.
+   */
+  private async notifyClientOfLead(clientId: string, conversationId: string, info: Record<string, string>) {
+    const [client, conversation] = await Promise.all([
+      this.prisma.client.findUnique({ where: { id: clientId }, include: { user: true } }),
+      this.prisma.customerConversation.findUnique({ where: { id: conversationId } }),
+    ]);
+    if (!client?.user.phone || !conversation) return;
+
+    const customer = conversation.customerName ?? conversation.customerPhone;
+    const details = Object.entries(info)
+      .map(([key, value]) => `${FIELD_LABELS[key] ?? key}: ${value}`)
+      .join('\n');
+
+    const message =
+      `New qualified lead for ${client.businessName}!\n\n` +
+      `Customer: ${customer}\n` +
+      `WhatsApp: ${conversation.customerPhone}\n\n` +
+      `${details}\n\n` +
+      `View the full conversation in your Contacts panel.`;
+
+    const sent = await this.sessionManager.sendMessage(SYSTEM_WHATSAPP_SESSION_ID, client.user.phone, message);
+    if (!sent) {
+      this.logger.warn(`Could not deliver lead notification for conversation ${conversationId} — system WhatsApp session may not be connected.`);
+    }
   }
 }
