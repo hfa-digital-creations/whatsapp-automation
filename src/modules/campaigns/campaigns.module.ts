@@ -6,6 +6,7 @@ import { RenewalReminderService } from './renewal-reminder.service';
 import { RenewalReminderProcessor } from './renewal-reminder.processor';
 import { EnquiryMessageService } from './enquiry-message.service';
 import { OffersService } from './offers.service';
+import { OfferSendProcessor } from './offer-send.processor';
 import { CampaignsController } from './campaigns.controller';
 import { OffersController } from './offers.controller';
 import { SubscriptionModule } from '../subscription/subscription.module';
@@ -13,9 +14,21 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 
 @Module({
-  imports: [BullModule.registerQueue({ name: 'campaigns' }), SubscriptionModule, NotificationsModule, AuditLogModule],
+  imports: [
+    BullModule.registerQueue({ name: 'campaigns' }, { name: 'offers' }),
+    SubscriptionModule,
+    NotificationsModule,
+    AuditLogModule,
+  ],
   controllers: [CampaignsController, OffersController],
-  providers: [CampaignsService, RenewalReminderService, RenewalReminderProcessor, EnquiryMessageService, OffersService],
+  providers: [
+    CampaignsService,
+    RenewalReminderService,
+    RenewalReminderProcessor,
+    EnquiryMessageService,
+    OffersService,
+    OfferSendProcessor,
+  ],
 })
 export class CampaignsModule implements OnModuleInit {
   constructor(@InjectQueue('campaigns') private readonly campaignsQueue: Queue) {}
