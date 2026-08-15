@@ -16,6 +16,7 @@ export default function AdminWhatsappAccounts() {
   const { data: accounts, isLoading } = useQuery<Account[]>({
     queryKey: ['admin-whatsapp-accounts'],
     queryFn: async () => (await api.get('/admin/whatsapp/accounts')).data.data,
+    refetchInterval: 4000,
   });
 
   return (
