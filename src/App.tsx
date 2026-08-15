@@ -3,6 +3,7 @@ import { useAuth } from './context/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { AdminLayout } from './components/AdminLayout';
 import { ClientLayout } from './components/ClientLayout';
+import { FaviconLoader } from './components/FaviconLoader';
 
 import Login from './pages/Login';
 import ForgotPassword from './pages/ForgotPassword';
@@ -23,6 +24,7 @@ import AdminEnquiries from './pages/admin/Enquiries';
 import AdminAuditLogs from './pages/admin/AuditLogs';
 import AdminOffers from './pages/admin/Offers';
 import AdminUsers from './pages/admin/Users';
+import AdminSettings from './pages/admin/Settings';
 
 import ClientChangePassword from './pages/client/ChangePassword';
 import ClientDashboard from './pages/client/Dashboard';
@@ -42,64 +44,68 @@ function RequireClientAuth({ children }: { children: JSX.Element }) {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Landing />} />
-      <Route path="/privacy" element={<Privacy />} />
-      <Route path="/terms" element={<Terms />} />
-      <Route path="/login" element={<Login />} />
-      <Route path="/forgot-password" element={<ForgotPassword />} />
-      <Route path="/reset-password" element={<ResetPassword />} />
+    <>
+      <FaviconLoader />
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        <Route path="/privacy" element={<Privacy />} />
+        <Route path="/terms" element={<Terms />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
 
-      <Route
-        path="/app/change-password"
-        element={
-          <RequireClientAuth>
-            <ClientChangePassword />
-          </RequireClientAuth>
-        }
-      />
+        <Route
+          path="/app/change-password"
+          element={
+            <RequireClientAuth>
+              <ClientChangePassword />
+            </RequireClientAuth>
+          }
+        />
 
-      <Route
-        path="/admin"
-        element={
-          <ProtectedRoute roles={['SUPER_ADMIN', 'ADMIN']}>
-            <AdminLayout />
-          </ProtectedRoute>
-        }
-      >
-        <Route index element={<AdminDashboard />} />
-        <Route path="clients" element={<AdminClients />} />
-        <Route path="clients/:id" element={<AdminClientDetail />} />
-        <Route path="plans" element={<AdminPlans />} />
-        <Route path="vouchers" element={<AdminVouchers />} />
-        <Route path="features" element={<AdminFeatures />} />
-        <Route path="whatsapp" element={<AdminWhatsapp />} />
-        <Route path="system-whatsapp" element={<AdminSystemWhatsapp />} />
-        <Route path="enquiries" element={<AdminEnquiries />} />
-        <Route path="offers" element={<AdminOffers />} />
-        <Route path="users" element={<AdminUsers />} />
-        <Route path="audit-logs" element={<AdminAuditLogs />} />
-      </Route>
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute roles={['SUPER_ADMIN', 'ADMIN']}>
+              <AdminLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<AdminDashboard />} />
+          <Route path="clients" element={<AdminClients />} />
+          <Route path="clients/:id" element={<AdminClientDetail />} />
+          <Route path="plans" element={<AdminPlans />} />
+          <Route path="vouchers" element={<AdminVouchers />} />
+          <Route path="features" element={<AdminFeatures />} />
+          <Route path="whatsapp" element={<AdminWhatsapp />} />
+          <Route path="system-whatsapp" element={<AdminSystemWhatsapp />} />
+          <Route path="enquiries" element={<AdminEnquiries />} />
+          <Route path="offers" element={<AdminOffers />} />
+          <Route path="users" element={<AdminUsers />} />
+          <Route path="audit-logs" element={<AdminAuditLogs />} />
+          <Route path="settings" element={<AdminSettings />} />
+        </Route>
 
-      <Route
-        path="/app"
-        element={
-          <ProtectedRoute roles={['CLIENT']}>
-            <ClientLayout />
-          </ProtectedRoute>
-        }
-      >
-        <Route index element={<ClientDashboard />} />
-        <Route path="whatsapp" element={<ClientWhatsapp />} />
-        <Route path="training" element={<ClientTraining />} />
-        <Route path="conversations" element={<ClientConversations />} />
-        <Route path="contacts" element={<ClientContacts />} />
-        <Route path="trash" element={<ClientTrash />} />
-        <Route path="quotations" element={<ClientQuotations />} />
-        <Route path="settings" element={<ClientSettings />} />
-      </Route>
+        <Route
+          path="/app"
+          element={
+            <ProtectedRoute roles={['CLIENT']}>
+              <ClientLayout />
+            </ProtectedRoute>
+          }
+        >
+          <Route index element={<ClientDashboard />} />
+          <Route path="whatsapp" element={<ClientWhatsapp />} />
+          <Route path="training" element={<ClientTraining />} />
+          <Route path="conversations" element={<ClientConversations />} />
+          <Route path="contacts" element={<ClientContacts />} />
+          <Route path="trash" element={<ClientTrash />} />
+          <Route path="quotations" element={<ClientQuotations />} />
+          <Route path="settings" element={<ClientSettings />} />
+        </Route>
 
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
   );
 }
