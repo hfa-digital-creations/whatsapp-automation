@@ -148,20 +148,13 @@ export default function ClientSettings() {
     remainingDays: number | null;
     plan: { title: string } | null;
     user: { email: string; phone: string | null };
+    automationMode: string;
+    fallbackMessage: string;
+    conversationFlow: string | null;
+    defaultPaymentLink: string | null;
   }>({
     queryKey: ['client-profile'],
     queryFn: async () => (await api.get('/client/profile')).data.data,
-  });
-
-  const { data: settings } = useQuery<{
-    businessName: string;
-    automationMode: string;
-    fallbackMessage: string;
-    conversationFlow: string;
-    paymentLink: string;
-  }>({
-    queryKey: ['client-settings'],
-    queryFn: async () => (await api.get('/client/settings')).data.data,
   });
 
   const [businessName, setBusinessName] = useState('');
@@ -173,28 +166,27 @@ export default function ClientSettings() {
   const [settingsError, setSettingsError] = useState('');
 
   useEffect(() => {
-    if (settings) {
-      setBusinessName(settings.businessName ?? '');
-      setAutomationMode(settings.automationMode ?? 'DRAFT_APPROVE');
-      setFallbackMessage(settings.fallbackMessage ?? '');
-      setConversationFlow(settings.conversationFlow ?? '');
-      setPaymentLink(settings.paymentLink ?? '');
+    if (profile) {
+      setBusinessName(profile.businessName ?? '');
+      setAutomationMode(profile.automationMode ?? 'DRAFT_APPROVE');
+      setFallbackMessage(profile.fallbackMessage ?? '');
+      setConversationFlow(profile.conversationFlow ?? '');
+      setPaymentLink(profile.defaultPaymentLink ?? '');
     }
-  }, [settings]);
+  }, [profile]);
 
   const settingsMutation = useMutation({
     mutationFn: () =>
-      api.put('/client/settings', {
+      api.patch('/client/profile', {
         businessName,
         automationMode,
         fallbackMessage,
-        conversationFlow,
-        paymentLink,
+        conversationFlow: conversationFlow || undefined,
+        defaultPaymentLink: paymentLink || undefined,
       }),
     onSuccess: () => {
       setSettingsSaved(true);
       setSettingsError('');
-      queryClient.invalidateQueries({ queryKey: ['client-settings'] });
       queryClient.invalidateQueries({ queryKey: ['client-profile'] });
       setTimeout(() => setSettingsSaved(false), 3000);
     },
@@ -213,7 +205,7 @@ export default function ClientSettings() {
   const [passwordSaved, setPasswordSaved] = useState(false);
 
   const passwordMutation = useMutation({
-    mutationFn: () => api.post('/client/profile/change-password', { currentPassword, newPassword }),
+    mutationFn: () => api.post('/auth/change-password', { currentPassword, newPassword }),
     onSuccess: () => {
       setPasswordSaved(true);
       setPasswordError('');
@@ -231,13 +223,13 @@ export default function ClientSettings() {
   }
 
   const checkoutMutation = useMutation({
-    mutationFn: () => api.post('/client/payments/renew/checkout', { voucherCode: voucherCode.trim() || undefined }),
+    mutationFn: () => api.post('/client/subscription/checkout', { voucherCode: voucherCode.trim() || undefined }),
     onError: (err) => setRenewError(apiErrorMessage(err)),
   });
 
   const verifyMutation = useMutation({
     mutationFn: (payload: { paymentId: string; razorpayOrderId: string; razorpayPaymentId: string; razorpaySignature: string }) =>
-      api.post(`/client/payments/${payload.paymentId}/verify`, payload),
+      api.post('/client/subscription/verify', payload),
     onSuccess: () => {
       setRenewSuccess('Renewal payment verified — subscription successfully extended!');
       setVoucherCode('');
