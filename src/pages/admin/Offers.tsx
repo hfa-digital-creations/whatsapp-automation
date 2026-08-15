@@ -195,6 +195,9 @@ export default function AdminOffers() {
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState({ name: '', message: '', mediaUrl: '', mediaType: '' as OfferMediaType | '', mediaFileName: '' });
   const [aiPrompt, setAiPrompt] = useState('');
+  const [createTarget, setCreateTarget] = useState('ACTIVE_CLIENTS');
+  const [createSelectedClients, setCreateSelectedClients] = useState<string[]>([]);
+  const [pendingAction, setPendingAction] = useState<'draft' | 'send'>('draft');
   const [target, setTarget] = useState<Record<string, string>>({});
   const [selectedClients, setSelectedClients] = useState<Record<string, string[]>>({});
   const [error, setError] = useState('');
@@ -218,6 +221,14 @@ export default function AdminOffers() {
     queryFn: async () => (await api.get('/admin/offers/trash')).data.data,
   });
 
+  function resetCreateForm() {
+    setForm({ name: '', message: '', mediaUrl: '', mediaType: '', mediaFileName: '' });
+    setAiPrompt('');
+    setCreateTarget('ACTIVE_CLIENTS');
+    setCreateSelectedClients([]);
+    setShowCreate(false);
+  }
+
   const createMutation = useMutation({
     mutationFn: () =>
       api.post('/admin/offers', {
@@ -229,9 +240,32 @@ export default function AdminOffers() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-offers'] });
-      setForm({ name: '', message: '', mediaUrl: '', mediaType: '', mediaFileName: '' });
-      setAiPrompt('');
-      setShowCreate(false);
+      resetCreateForm();
+    },
+    onError: (err) => setError(apiErrorMessage(err)),
+  });
+
+  /** Creates the campaign and immediately queues it to the chosen clients in one step. */
+  const createAndSendMutation = useMutation({
+    mutationFn: async () => {
+      const createRes = await api.post('/admin/offers', {
+        name: form.name,
+        message: form.message,
+        mediaUrl: form.mediaUrl || undefined,
+        mediaType: form.mediaType || undefined,
+        mediaFileName: form.mediaFileName || undefined,
+      });
+      const newId = createRes.data.data.id;
+      await api.post(`/admin/offers/${newId}/send`, {
+        target: createTarget,
+        clientIds: createTarget === 'SPECIFIC_CLIENTS' ? createSelectedClients : undefined,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-offers'] });
+      resetCreateForm();
+      setResult('Broadcast created and queued — sending in small batches with safety pauses in the background. Progress shows on the campaign card below.');
+      setError('');
     },
     onError: (err) => setError(apiErrorMessage(err)),
   });
@@ -296,10 +330,18 @@ export default function AdminOffers() {
     });
   }
 
+  function toggleCreateSelectedClient(clientId: string) {
+    setCreateSelectedClients((s) => (s.includes(clientId) ? s.filter((id) => id !== clientId) : [...s, clientId]));
+  }
+
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
-    createMutation.mutate();
+    if (pendingAction === 'send') {
+      createAndSendMutation.mutate();
+    } else {
+      createMutation.mutate();
+    }
   }
 
   function handleMediaChange(e: ChangeEvent<HTMLInputElement>) {
@@ -410,9 +452,41 @@ export default function AdminOffers() {
               <p className="mt-1 text-[11px] text-slate-400">Images up to 5MB, video up to 16MB, PDF up to 16MB.</p>
             </div>
 
-            <div className="flex items-center gap-3">
-              <Button type="submit" disabled={createMutation.isPending} className="text-xs">
-                {createMutation.isPending ? 'Saving...' : 'Create Campaign'}
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Send To (used only if you send immediately)</label>
+              <Select value={createTarget} onChange={(e) => setCreateTarget(e.target.value)} className="text-xs">
+                <option value="ACTIVE_CLIENTS">Active clients only</option>
+                <option value="ALL_CLIENTS">All clients</option>
+                <option value="SPECIFIC_CLIENTS">Specific client(s)...</option>
+              </Select>
+              {createTarget === 'SPECIFIC_CLIENTS' && (
+                <div className="mt-2">
+                  <ClientPicker clients={clientOptions ?? []} selected={createSelectedClients} onToggle={toggleCreateSelectedClient} />
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="submit"
+                variant="secondary"
+                onClick={() => setPendingAction('draft')}
+                disabled={createMutation.isPending || createAndSendMutation.isPending}
+                className="text-xs"
+              >
+                {createMutation.isPending ? 'Saving...' : 'Save as Draft'}
+              </Button>
+              <Button
+                type="submit"
+                onClick={() => setPendingAction('send')}
+                disabled={
+                  createMutation.isPending ||
+                  createAndSendMutation.isPending ||
+                  (createTarget === 'SPECIFIC_CLIENTS' && createSelectedClients.length === 0)
+                }
+                className="text-xs"
+              >
+                {createAndSendMutation.isPending ? 'Sending...' : 'Create & Send Now'}
               </Button>
             </div>
           </form>
