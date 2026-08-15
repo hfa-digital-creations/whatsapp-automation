@@ -73,6 +73,103 @@ function ClientPicker({
   );
 }
 
+interface TrashedCampaign extends Campaign {
+  deletedAt: string;
+}
+
+/** Trashed campaigns stay recoverable until permanently deleted — mirrors the client-side conversation trash pattern. */
+function TrashPanel({ onError }: { onError: (msg: string) => void }) {
+  const queryClient = useQueryClient();
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const { data: trashed, isLoading } = useQuery<TrashedCampaign[]>({
+    queryKey: ['admin-offers-trash'],
+    queryFn: async () => (await api.get('/admin/offers/trash')).data.data,
+  });
+
+  function invalidateAll() {
+    queryClient.invalidateQueries({ queryKey: ['admin-offers-trash'] });
+    queryClient.invalidateQueries({ queryKey: ['admin-offers'] });
+  }
+
+  const restoreMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/admin/offers/${id}/restore`),
+    onSuccess: () => {
+      onError('');
+      invalidateAll();
+    },
+    onError: (err) => onError(apiErrorMessage(err)),
+  });
+
+  const permanentDeleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/admin/offers/${id}/permanent`),
+    onSuccess: () => {
+      onError('');
+      setConfirmDeleteId(null);
+      invalidateAll();
+    },
+    onError: (err) => onError(apiErrorMessage(err)),
+  });
+
+  if (isLoading) return <Spinner />;
+
+  return (
+    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 animate-tab-content">
+      {trashed?.map((c) => (
+        <Card key={c.id} className="p-6 flex flex-col justify-between opacity-80">
+          <div>
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">{c.name}</h3>
+              <Badge tone="gray">Trashed</Badge>
+            </div>
+            <p className="mt-3 rounded-xl bg-white/40 p-3 text-xs text-slate-700 whitespace-pre-wrap border border-slate-200/50 dark:bg-white/[0.02] dark:border-white/5 dark:text-slate-300">
+              {c.config?.message}
+            </p>
+            <p className="mt-2 text-[11px] text-slate-400">Deleted {new Date(c.deletedAt).toLocaleString()}</p>
+          </div>
+
+          <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-3 dark:border-white/5">
+            <Button
+              variant="secondary"
+              className="px-3 py-1.5 text-xs"
+              disabled={restoreMutation.isPending}
+              onClick={() => restoreMutation.mutate(c.id)}
+            >
+              Restore
+            </Button>
+            {confirmDeleteId === c.id ? (
+              <>
+                <Button
+                  variant="danger"
+                  className="px-3 py-1.5 text-xs"
+                  disabled={permanentDeleteMutation.isPending}
+                  onClick={() => permanentDeleteMutation.mutate(c.id)}
+                >
+                  {permanentDeleteMutation.isPending ? 'Deleting...' : 'Confirm Permanent Delete'}
+                </Button>
+                <Button variant="secondary" className="px-2.5 py-1.5 text-xs" onClick={() => setConfirmDeleteId(null)}>
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <Button
+                variant="ghost"
+                className="px-2.5 py-1.5 text-xs text-rose-500 hover:text-rose-600"
+                onClick={() => setConfirmDeleteId(c.id)}
+              >
+                Delete Forever
+              </Button>
+            )}
+          </div>
+        </Card>
+      ))}
+      {trashed?.length === 0 && (
+        <div className="col-span-full py-12 text-center text-sm text-slate-400">Trash is empty.</div>
+      )}
+    </div>
+  );
+}
+
 function CampaignMedia({ config }: { config: Campaign['config'] }) {
   if (!config?.mediaUrl) return null;
   if (config.mediaType === 'IMAGE') {
@@ -102,7 +199,7 @@ export default function AdminOffers() {
   const [selectedClients, setSelectedClients] = useState<Record<string, string[]>>({});
   const [error, setError] = useState('');
   const [result, setResult] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<'ALL' | 'ACTIVE' | 'COMPLETED'>('ALL');
+  const [activeFilter, setActiveFilter] = useState<'ALL' | 'ACTIVE' | 'COMPLETED' | 'TRASH'>('ALL');
   const [showCreate, setShowCreate] = useState(false);
 
   const { data: campaigns, isLoading } = useQuery<Campaign[]>({
@@ -114,6 +211,11 @@ export default function AdminOffers() {
   const { data: clientOptions } = useQuery<ClientOption[]>({
     queryKey: ['admin-offer-client-options'],
     queryFn: async () => (await api.get('/admin/clients', { params: { take: 500 } })).data.data.items,
+  });
+
+  const { data: trashedCampaigns } = useQuery<TrashedCampaign[]>({
+    queryKey: ['admin-offers-trash'],
+    queryFn: async () => (await api.get('/admin/offers/trash')).data.data,
   });
 
   const createMutation = useMutation({
@@ -180,6 +282,7 @@ export default function AdminOffers() {
     mutationFn: (id: string) => api.delete(`/admin/offers/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-offers'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-offers-trash'] });
       setError('');
     },
     onError: (err) => setError(apiErrorMessage(err)),
@@ -330,13 +433,16 @@ export default function AdminOffers() {
             { id: 'ALL', label: 'All Campaigns', count: campaigns?.length ?? 0 },
             { id: 'ACTIVE', label: 'Ready / Drafts', count: campaigns?.filter((c) => c.status !== 'COMPLETED').length ?? 0 },
             { id: 'COMPLETED', label: 'Completed Broadcasts', count: campaigns?.filter((c) => c.status === 'COMPLETED').length ?? 0 },
+            { id: 'TRASH', label: 'Trash', count: trashedCampaigns?.length ?? 0 },
           ]}
           activeTab={activeFilter}
           onChange={(f) => setActiveFilter(f as any)}
         />
       </div>
 
-      {isLoading ? (
+      {activeFilter === 'TRASH' ? (
+        <TrashPanel onError={setError} />
+      ) : isLoading ? (
         <Spinner />
       ) : (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 animate-tab-content">
