@@ -589,8 +589,23 @@ model Enquiry {
   updatedAt    DateTime      @updatedAt
 
   campaignMessages CampaignMessage[]
+  messages         EnquiryMessage[]
 
   @@index([status])
+}
+
+/// Full WhatsApp conversation thread with a prospect — both the automatic pre-sales
+/// outreach/replies and any manually-sent follow-ups, so the admin panel can show the
+/// whole exchange, not just a one-way send log.
+model EnquiryMessage {
+  id        String           @id @default(uuid())
+  enquiryId String
+  enquiry   Enquiry          @relation(fields: [enquiryId], references: [id], onDelete: Cascade)
+  direction MessageDirection
+  content   String
+  createdAt DateTime         @default(now())
+
+  @@index([enquiryId])
 }
 
 model Campaign {

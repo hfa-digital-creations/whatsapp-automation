@@ -1,11 +1,14 @@
 import { Module } from '@nestjs/common';
 import { EnquiriesService } from './enquiries.service';
+import { EnquiryAutomationService } from './enquiry-automation.service';
 import { EnquiriesController } from './enquiries.controller';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { WhatsappModule } from '../whatsapp/whatsapp.module';
+import { PlansModule } from '../plans/plans.module';
 
 @Module({
-  imports: [NotificationsModule],
+  imports: [NotificationsModule, WhatsappModule, PlansModule],
   controllers: [EnquiriesController],
-  providers: [EnquiriesService],
+  providers: [EnquiriesService, EnquiryAutomationService],
 })
 export class EnquiriesModule {}

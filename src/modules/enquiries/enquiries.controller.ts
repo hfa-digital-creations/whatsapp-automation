@@ -32,4 +32,10 @@ export class EnquiriesController {
   updateStatus(@Param('id') id: string, @Body('status') status: EnquiryStatus) {
     return this.enquiriesService.updateStatus(id, status);
   }
+
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Get('admin/enquiries/:id/messages')
+  getMessages(@Param('id') id: string) {
+    return this.enquiriesService.getMessages(id);
+  }
 }

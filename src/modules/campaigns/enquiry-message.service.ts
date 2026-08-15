@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { CampaignType, EnquiryStatus } from '@prisma/client';
+import { CampaignType, EnquiryStatus, MessageDirection } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { AiService } from '../../common/services/ai.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -60,6 +60,9 @@ Their message: ${enquiry.message ?? '(no message provided)'}`;
       content,
       sent: result.whatsappSent || result.emailSent,
     });
+    // Also logged to the conversation thread (used by both this manual send and the
+    // automatic enquiry outreach/replies) so the admin panel shows one complete history.
+    await this.prisma.enquiryMessage.create({ data: { enquiryId, direction: MessageDirection.OUTBOUND, content } });
 
     if (enquiry.status === EnquiryStatus.NEW) {
       await this.prisma.enquiry.update({ where: { id: enquiryId }, data: { status: EnquiryStatus.CONTACTED } });
