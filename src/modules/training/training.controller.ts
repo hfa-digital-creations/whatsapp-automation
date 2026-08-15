@@ -41,6 +41,24 @@ export class TrainingController {
     return this.trainingService.getKnowledge(user.clientId!);
   }
 
+  @Get('export')
+  export(@CurrentUser() user: AuthenticatedUser) {
+    return this.trainingService.exportData(user.clientId!);
+  }
+
+  @Post('import')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE_BYTES } }))
+  async import(@CurrentUser() user: AuthenticatedUser, @UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded.');
+    let payload: unknown;
+    try {
+      payload = JSON.parse(file.buffer.toString('utf8'));
+    } catch {
+      throw new BadRequestException('That file is not valid JSON — make sure you selected an exported training file.');
+    }
+    return this.trainingService.importData(user.clientId!, payload);
+  }
+
   @Post('text')
   createText(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateTextTrainingDto) {
     return this.trainingService.createText(user.clientId!, dto);
