@@ -80,12 +80,28 @@ export class NotificationsService implements OnModuleInit {
     subject: string;
     emailHtml?: string;
     whatsappMessage?: string;
+    /** Optional local file (image/video/document) attached to both the email and WhatsApp send. */
+    media?: { filePath: string; fileName: string } | null;
   }): Promise<{ emailSent: boolean; whatsappSent: boolean }> {
     const emailSent =
-      params.email && params.emailHtml ? await this.emailService.send(params.email, params.subject, params.emailHtml) : false;
+      params.email && params.emailHtml
+        ? await this.emailService.send(
+            params.email,
+            params.subject,
+            params.emailHtml,
+            params.media ? [{ filename: params.media.fileName, path: params.media.filePath }] : undefined,
+          )
+        : false;
     const whatsappSent =
       params.phone && params.whatsappMessage
-        ? await this.whatsappSessionManager.sendMessage(SYSTEM_WHATSAPP_SESSION_ID, params.phone, params.whatsappMessage)
+        ? params.media
+          ? await this.whatsappSessionManager.sendMediaMessage(
+              SYSTEM_WHATSAPP_SESSION_ID,
+              params.phone,
+              params.media.filePath,
+              params.whatsappMessage,
+            )
+          : await this.whatsappSessionManager.sendMessage(SYSTEM_WHATSAPP_SESSION_ID, params.phone, params.whatsappMessage)
         : false;
     return { emailSent, whatsappSent };
   }

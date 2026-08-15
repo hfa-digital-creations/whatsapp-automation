@@ -1,15 +1,40 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { CampaignStatus, CampaignType, MessageStatus, UserStatus } from '@prisma/client';
+import * as fs from 'fs';
+import * as path from 'path';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../common/services/prisma.service';
 import { SubscriptionService } from '../subscription/subscription.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { AiService } from '../../common/services/ai.service';
 import { CampaignsService } from './campaigns.service';
 import { batchPauseMs, humanSendDelayMs, sleep } from '../../common/utils/throttle';
+import { resolveOfferMediaRule } from './offer-media.util';
 
 export type OfferTarget = 'ALL_CLIENTS' | 'ACTIVE_CLIENTS';
+export type OfferMediaType = 'IMAGE' | 'VIDEO' | 'DOCUMENT';
+
+interface OfferCampaignConfig {
+  message?: string;
+  mediaUrl?: string;
+  mediaType?: OfferMediaType;
+  mediaFileName?: string;
+}
 
 /** Batch size and rationale in throttle.ts — keeps hourly volume well under WhatsApp's ~60/hr automated-behavior threshold. */
 const BATCH_SIZE = 5;
+
+const GENERATE_TEXT_SYSTEM_PROMPT = `You write short, warm, persuasive WhatsApp broadcast messages for a SaaS
+platform's admin to send to its business clients as promotional offers or announcements.
+
+Rules:
+- Plain text only, no markdown formatting (WhatsApp's own *bold*/_italic_ is fine, used sparingly).
+- Include the placeholder {{businessName}} at least once so the message can be personalized per client.
+- Keep it concise — 2 to 5 short lines, WhatsApp-appropriate, not an email.
+- Never invent specific prices, dates, or promo codes that aren't mentioned in the instructions below —
+  only use details actually given.
+- Output ONLY the final message text, nothing else (no preamble, no quotes around it).`;
 
 @Injectable()
 export class OffersService {
@@ -20,10 +45,21 @@ export class OffersService {
     private readonly subscriptionService: SubscriptionService,
     private readonly notificationsService: NotificationsService,
     private readonly campaignsService: CampaignsService,
+    private readonly ai: AiService,
+    private readonly config: ConfigService,
   ) {}
 
-  create(name: string, message: string) {
-    return this.campaignsService.create(CampaignType.OFFER, name, { message });
+  private get uploadRoot(): string {
+    return this.config.get<string>('UPLOAD_PATH') ?? path.join(process.cwd(), 'uploads');
+  }
+
+  private resolveMediaPath(mediaUrl: string): string {
+    const storedFileName = mediaUrl.split('/').pop()!;
+    return path.join(this.uploadRoot, 'offers', storedFileName);
+  }
+
+  create(name: string, message: string, media?: { mediaUrl?: string; mediaType?: OfferMediaType; mediaFileName?: string }) {
+    return this.campaignsService.create(CampaignType.OFFER, name, { message, ...media });
   }
 
   list() {
@@ -32,6 +68,40 @@ export class OffersService {
 
   getMessages(campaignId: string) {
     return this.campaignsService.listMessages(campaignId);
+  }
+
+  /** Stores an uploaded image/video/PDF to disk and returns the details to attach to an offer campaign. */
+  async saveMedia(file: Express.Multer.File) {
+    const rule = resolveOfferMediaRule(file.originalname);
+    if (!rule) {
+      throw new BadRequestException('Unsupported file type. Allowed: images (jpg, png, webp, gif), video (mp4, mov, 3gp), or PDF.');
+    }
+    if (file.size > rule.maxBytes) {
+      const label = rule.type === 'IMAGE' ? 'Images' : rule.type === 'VIDEO' ? 'Videos' : 'Documents';
+      throw new BadRequestException(`${label} must be under ${Math.round(rule.maxBytes / (1024 * 1024))}MB.`);
+    }
+
+    const dir = path.join(this.uploadRoot, 'offers');
+    fs.mkdirSync(dir, { recursive: true });
+    const ext = file.originalname.split('.').pop()!.toLowerCase();
+    const storedFileName = `${randomUUID()}.${ext}`;
+    fs.writeFileSync(path.join(dir, storedFileName), file.buffer);
+
+    return {
+      mediaUrl: `/api/uploads/offers/${storedFileName}`,
+      mediaType: rule.type,
+      mediaFileName: file.originalname,
+    };
+  }
+
+  /** AI-drafted broadcast copy from a short admin prompt — a starting point the admin can still edit before sending. */
+  async generateText(prompt: string): Promise<string> {
+    if (!this.ai.isConfigured) {
+      throw new BadRequestException('AI text generation is not configured on this server.');
+    }
+    const text = await this.ai.complete({ system: GENERATE_TEXT_SYSTEM_PROMPT, prompt, maxTokens: 400 });
+    if (!text) throw new BadRequestException('AI text generation failed — please try again or write the message manually.');
+    return text.trim();
   }
 
   /**
@@ -48,7 +118,8 @@ export class OffersService {
     if (campaign.status === CampaignStatus.COMPLETED) {
       throw new BadRequestException('This campaign has already been sent.');
     }
-    const message = messageOverride ?? (campaign.config as { message?: string } | null)?.message;
+    const config = campaign.config as OfferCampaignConfig | null;
+    const message = messageOverride ?? config?.message;
     if (!message) throw new BadRequestException('Campaign has no message content.');
     await this.campaignsService.updateStatus(campaignId, CampaignStatus.RUNNING);
     return { message };
@@ -65,6 +136,11 @@ export class OffersService {
    */
   async executeSend(campaignId: string, target: OfferTarget, message: string) {
     const campaign = await this.campaignsService.getById(campaignId);
+    const config = campaign.config as OfferCampaignConfig | null;
+    const media =
+      config?.mediaUrl && config.mediaFileName
+        ? { filePath: this.resolveMediaPath(config.mediaUrl), fileName: config.mediaFileName }
+        : null;
 
     const [clients, alreadySent] = await Promise.all([
       this.prisma.client.findMany({ where: { user: { status: UserStatus.ACTIVE } }, include: { user: true } }),
@@ -104,6 +180,7 @@ export class OffersService {
             subject: campaign.name,
             emailHtml: `<p>${personalized}</p>`,
             whatsappMessage: personalized,
+            media,
           });
           await this.campaignsService.recordMessage({
             campaignId,

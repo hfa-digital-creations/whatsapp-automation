@@ -24,7 +24,12 @@ export class EmailService {
     });
   }
 
-  async send(to: string, subject: string, html: string): Promise<boolean> {
+  async send(
+    to: string,
+    subject: string,
+    html: string,
+    attachments?: Array<{ filename: string; path: string }>,
+  ): Promise<boolean> {
     if (!this.transporter) return false;
     try {
       await this.transporter.sendMail({
@@ -32,6 +37,7 @@ export class EmailService {
         to,
         subject,
         html,
+        attachments,
       });
       return true;
     } catch (err: any) {

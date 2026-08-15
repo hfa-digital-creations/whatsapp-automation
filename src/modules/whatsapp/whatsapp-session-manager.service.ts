@@ -37,7 +37,7 @@ export interface WhatsappMessageReceivedEvent {
 // whatsapp-web.js has no first-class TypeScript types for our purposes; require keeps
 // this resilient to the package's own type gaps across versions.
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 
 interface SessionHandle {
   client: any;
@@ -357,6 +357,21 @@ export class WhatsappSessionManagerService implements OnModuleInit, OnModuleDest
       return true;
     } catch (err: any) {
       this.logger.warn(`Failed to send WhatsApp message via ${sessionId}: ${err.message}`);
+      return false;
+    }
+  }
+
+  /** Same delivery semantics as sendMessage(), but attaches a local file (image/video/document) with an optional caption. */
+  async sendMediaMessage(sessionId: string, toPhone: string, filePath: string, caption?: string): Promise<boolean> {
+    const handle = this.sessions.get(sessionId);
+    if (!handle) return false;
+    try {
+      const chatId = toPhone.includes('@') ? toPhone : `${toPhone.replace(/\D/g, '')}@c.us`;
+      const media = MessageMedia.fromFilePath(filePath);
+      await handle.client.sendMessage(chatId, media, caption ? { caption } : undefined);
+      return true;
+    } catch (err: any) {
+      this.logger.warn(`Failed to send WhatsApp media via ${sessionId}: ${err.message}`);
       return false;
     }
   }

@@ -1,6 +1,8 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import helmet from 'helmet';
+import * as path from 'path';
 import { AppModule } from './app.module';
 
 const logger = new Logger('Process');
@@ -31,9 +33,18 @@ async function bootstrap() {
 
   // rawBody: true keeps req.rawBody available (needed to verify the Razorpay
   // webhook's HMAC signature) without disabling normal JSON parsing elsewhere.
-  const app = await NestFactory.create(AppModule, { rawBody: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
 
   app.use(helmet());
+
+  // Serves uploaded offer campaign media (images/video/PDFs) for admin-panel preview
+  // and reuse. Read directly from process.env (not ConfigService) because Docker
+  // Compose's env_file injects these as real OS env vars before Node starts, and
+  // static middleware must be wired up here at bootstrap, outside Nest's DI graph.
+  // Mounted under /api/... so it rides the same reverse-proxy path as every other
+  // backend route — no extra nginx/Caddy config needed.
+  const uploadRoot = process.env.UPLOAD_PATH ?? path.join(process.cwd(), 'uploads');
+  app.useStaticAssets(uploadRoot, { prefix: '/api/uploads' });
   // Fail toward restrictive: an unset FRONTEND_URL should not silently widen
   // CORS to reflect-and-allow any origin (which `origin: true` would do).
   app.enableCors({
