@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
 import { loadRazorpayScript } from '../../lib/razorpay';
-import { Badge, Button, Card, ErrorText, Input, Spinner } from '../../components/ui';
+import { Badge, Button, Card, ErrorText, Input, Spinner, Tabs, TabPanel } from '../../components/ui';
 
 interface Account {
   id: string; sessionId: string; phoneNumber: string | null; displayName: string | null; status: string;
