@@ -11,9 +11,21 @@ import { AiService } from '../../common/services/ai.service';
 import { CampaignsService } from './campaigns.service';
 import { batchPauseMs, humanSendDelayMs, sleep } from '../../common/utils/throttle';
 import { resolveOfferMediaRule } from './offer-media.util';
+import { OfferPhoneRecipient } from './dto/send-offer.dto';
 
-export type OfferTarget = 'ALL_CLIENTS' | 'ACTIVE_CLIENTS' | 'SPECIFIC_CLIENTS';
+export type OfferTarget = 'ALL_CLIENTS' | 'ACTIVE_CLIENTS' | 'SPECIFIC_CLIENTS' | 'PHONE_NUMBERS';
 export type OfferMediaType = 'IMAGE' | 'VIDEO' | 'DOCUMENT';
+
+/** Normalizes both client-based and manually-entered-phone-number targets into one shape the send loop can share. */
+interface SendRecipient {
+  dedupKey: string;
+  name: string;
+  phone: string | null;
+  email?: string | null;
+  clientId?: string;
+  recipientPhone?: string;
+  recipientName?: string;
+}
 
 interface OfferCampaignConfig {
   message?: string;
@@ -168,7 +180,13 @@ export class OffersService {
    * a SENT CampaignMessage for this campaign are skipped, so nothing is sent twice and no
    * client is silently missed (spec: "no data should be loss").
    */
-  async executeSend(campaignId: string, target: OfferTarget, message: string, clientIds?: string[]) {
+  async executeSend(
+    campaignId: string,
+    target: OfferTarget,
+    message: string,
+    clientIds?: string[],
+    phoneNumbers?: OfferPhoneRecipient[],
+  ) {
     const campaign = await this.campaignsService.getById(campaignId);
     const config = campaign.config as OfferCampaignConfig | null;
     const media =
@@ -180,10 +198,12 @@ export class OffersService {
       this.prisma.client.findMany({ where: { user: { status: UserStatus.ACTIVE } }, include: { user: true } }),
       this.prisma.campaignMessage.findMany({
         where: { campaignId, status: MessageStatus.SENT },
-        select: { clientId: true },
+        select: { clientId: true, recipientPhone: true },
       }),
     ]);
-    const alreadySentIds = new Set(alreadySent.map((m) => m.clientId));
+    const alreadySentKeys = new Set(
+      alreadySent.map((m) => (m.clientId ? `client:${m.clientId}` : `phone:${normalizePhone(m.recipientPhone ?? '')}`)),
+    );
 
     const targetClients =
       target === 'ACTIVE_CLIENTS'
@@ -194,11 +214,29 @@ export class OffersService {
         : target === 'SPECIFIC_CLIENTS'
           ? clients.filter((c) => (clientIds ?? []).includes(c.id))
           : clients;
-    const pendingClients = targetClients.filter((c) => !alreadySentIds.has(c.id));
 
-    let sentCount = alreadySentIds.size;
-    for (let i = 0; i < pendingClients.length; i += BATCH_SIZE) {
-      const batch = pendingClients.slice(i, i + BATCH_SIZE);
+    const recipients: SendRecipient[] =
+      target === 'PHONE_NUMBERS'
+        ? (phoneNumbers ?? []).map((r) => ({
+            dedupKey: `phone:${normalizePhone(r.phone)}`,
+            name: r.name?.trim() || 'there',
+            phone: r.phone,
+            recipientPhone: r.phone,
+            recipientName: r.name?.trim() || undefined,
+          }))
+        : targetClients.map((c) => ({
+            dedupKey: `client:${c.id}`,
+            name: c.businessName,
+            phone: c.user.phone,
+            email: c.user.email,
+            clientId: c.id,
+          }));
+
+    const pendingRecipients = recipients.filter((r) => !alreadySentKeys.has(r.dedupKey));
+
+    let sentCount = alreadySentKeys.size;
+    for (let i = 0; i < pendingRecipients.length; i += BATCH_SIZE) {
+      const batch = pendingRecipients.slice(i, i + BATCH_SIZE);
       if (i > 0) {
         // Longer pause between batches of 5 — see throttle.ts for the WhatsApp
         // automated-behavior threshold this is sized against.
@@ -207,30 +245,29 @@ export class OffersService {
 
       for (let j = 0; j < batch.length; j++) {
         if (j > 0) await sleep(humanSendDelayMs());
-        const client = batch[j];
+        const recipient = batch[j];
+        const recordBase = { campaignId, clientId: recipient.clientId, recipientPhone: recipient.recipientPhone, recipientName: recipient.recipientName };
         try {
-          const personalized = message.replace(/{{\s*businessName\s*}}/g, client.businessName);
+          const personalized = message.replace(/{{\s*businessName\s*}}/g, recipient.name);
           const result = await this.notificationsService.sendCustom({
-            email: client.user.email,
-            phone: client.user.phone,
+            email: recipient.email,
+            phone: recipient.phone,
             subject: campaign.name,
-            emailHtml: `<p>${personalized}</p>`,
+            emailHtml: recipient.email ? `<p>${personalized}</p>` : undefined,
             whatsappMessage: personalized,
             media,
           });
           await this.campaignsService.recordMessage({
-            campaignId,
-            clientId: client.id,
+            ...recordBase,
             content: personalized,
             sent: result.emailSent || result.whatsappSent,
           });
           if (result.emailSent || result.whatsappSent) sentCount++;
         } catch (err: any) {
-          // One client's failure must never abort the rest of the batch/job.
-          this.logger.warn(`Offer send failed for client ${client.id} in campaign ${campaignId}: ${err.message}`);
+          // One recipient's failure must never abort the rest of the batch/job.
+          this.logger.warn(`Offer send failed for ${recipient.dedupKey} in campaign ${campaignId}: ${err.message}`);
           await this.campaignsService.recordMessage({
-            campaignId,
-            clientId: client.id,
+            ...recordBase,
             content: message,
             sent: false,
           });
@@ -239,6 +276,10 @@ export class OffersService {
     }
 
     await this.campaignsService.updateStatus(campaignId, CampaignStatus.COMPLETED);
-    return { targeted: targetClients.length, sent: sentCount };
+    return { targeted: recipients.length, sent: sentCount };
   }
+}
+
+function normalizePhone(phone: string): string {
+  return phone.replace(/\D/g, '').slice(-10);
 }

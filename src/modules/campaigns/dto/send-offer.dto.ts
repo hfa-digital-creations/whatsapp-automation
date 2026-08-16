@@ -1,8 +1,13 @@
 import { ArrayNotEmpty, IsArray, IsIn, IsOptional, IsString } from 'class-validator';
 
+export interface OfferPhoneRecipient {
+  phone: string;
+  name?: string;
+}
+
 export class SendOfferDto {
-  @IsIn(['ALL_CLIENTS', 'ACTIVE_CLIENTS', 'SPECIFIC_CLIENTS'])
-  target: 'ALL_CLIENTS' | 'ACTIVE_CLIENTS' | 'SPECIFIC_CLIENTS';
+  @IsIn(['ALL_CLIENTS', 'ACTIVE_CLIENTS', 'SPECIFIC_CLIENTS', 'PHONE_NUMBERS'])
+  target: 'ALL_CLIENTS' | 'ACTIVE_CLIENTS' | 'SPECIFIC_CLIENTS' | 'PHONE_NUMBERS';
 
   @IsOptional()
   @IsString()
@@ -14,4 +19,10 @@ export class SendOfferDto {
   @ArrayNotEmpty()
   @IsString({ each: true })
   clientIds?: string[];
+
+  /** Required when target is PHONE_NUMBERS — manually-entered recipients that may not be registered clients. */
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty()
+  phoneNumbers?: OfferPhoneRecipient[];
 }

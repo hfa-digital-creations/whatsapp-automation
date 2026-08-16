@@ -34,6 +34,8 @@ export class CampaignsService {
     campaignId: string;
     clientId?: string;
     enquiryId?: string;
+    recipientPhone?: string;
+    recipientName?: string;
     content: string;
     sent: boolean;
   }) {
@@ -42,6 +44,8 @@ export class CampaignsService {
         campaignId: params.campaignId,
         clientId: params.clientId,
         enquiryId: params.enquiryId,
+        recipientPhone: params.recipientPhone,
+        recipientName: params.recipientName,
         content: params.content,
         status: params.sent ? MessageStatus.SENT : MessageStatus.FAILED,
         sentAt: params.sent ? new Date() : undefined,

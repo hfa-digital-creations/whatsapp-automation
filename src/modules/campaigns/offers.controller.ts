@@ -77,11 +77,20 @@ export class OffersController {
     if (dto.target === 'SPECIFIC_CLIENTS' && !dto.clientIds?.length) {
       throw new BadRequestException('Select at least one client to send this offer to.');
     }
+    let phoneNumbers = dto.phoneNumbers;
+    if (dto.target === 'PHONE_NUMBERS') {
+      phoneNumbers = (dto.phoneNumbers ?? [])
+        .map((r) => ({ phone: r.phone?.trim(), name: r.name?.trim() }))
+        .filter((r): r is { phone: string; name: string | undefined } => !!r.phone);
+      if (!phoneNumbers.length) {
+        throw new BadRequestException('Add at least one phone number to send this offer to.');
+      }
+    }
 
     const { message } = await this.offersService.prepareSend(id, dto.messageOverride);
     await this.offersQueue.add(
       'send-offer',
-      { campaignId: id, target: dto.target, message, clientIds: dto.clientIds },
+      { campaignId: id, target: dto.target, message, clientIds: dto.clientIds, phoneNumbers },
       {
         jobId: `offer-send-${id}`,
         attempts: 3,
@@ -95,7 +104,7 @@ export class OffersController {
       action: 'OFFER_CAMPAIGN_QUEUED',
       targetType: 'Campaign',
       targetId: id,
-      metadata: { target: dto.target, clientCount: dto.clientIds?.length },
+      metadata: { target: dto.target, clientCount: dto.clientIds?.length, phoneCount: phoneNumbers?.length },
       ipAddress: req.ip,
     });
     return { queued: true };

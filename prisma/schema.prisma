@@ -629,6 +629,10 @@ model CampaignMessage {
   client      Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
   enquiryId   String?
   enquiry     Enquiry? @relation(fields: [enquiryId], references: [id], onDelete: SetNull)
+  /// Set instead of clientId when an offer is sent to a manually-entered phone number
+  /// that isn't a registered client.
+  recipientPhone String?
+  recipientName  String?
   content     String
   status      MessageStatus @default(QUEUED)
   scheduledAt DateTime?
