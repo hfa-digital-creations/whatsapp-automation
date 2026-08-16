@@ -28,6 +28,24 @@ interface PhoneRecipient {
   name?: string;
 }
 
+interface OfferGroup {
+  id: string;
+  name: string;
+  _count: { members: number };
+}
+
+interface OfferGroupMember {
+  id: string;
+  clientId: string | null;
+  phone: string | null;
+  name: string | null;
+  client: { id: string; businessName: string; user: { email: string } } | null;
+}
+
+interface OfferGroupDetail extends OfferGroup {
+  members: OfferGroupMember[];
+}
+
 const STATUS_TONE: Record<string, 'gray' | 'green' | 'amber' | 'blue'> = {
   DRAFT: 'gray', SCHEDULED: 'blue', RUNNING: 'amber', COMPLETED: 'green', CANCELLED: 'gray',
 };
@@ -133,6 +151,213 @@ function PhoneNumberEntry({
         </div>
       )}
     </div>
+  );
+}
+
+/** Add-only variant of the client picker — checking a client adds them to the group immediately (via onAdd), already-added clients show checked and locked (remove via the members list instead). */
+function GroupMembersPanel({ groupId, onError }: { groupId: string; onError: (msg: string) => void }) {
+  const queryClient = useQueryClient();
+
+  const { data: group, isLoading } = useQuery<OfferGroupDetail>({
+    queryKey: ['admin-offer-group', groupId],
+    queryFn: async () => (await api.get(`/admin/offer-groups/${groupId}`)).data.data,
+  });
+
+  const { data: clientOptions } = useQuery<ClientOption[]>({
+    queryKey: ['admin-offer-client-options'],
+    queryFn: async () => (await api.get('/admin/clients', { params: { take: 500 } })).data.data.items,
+  });
+
+  function invalidate() {
+    queryClient.invalidateQueries({ queryKey: ['admin-offer-group', groupId] });
+    queryClient.invalidateQueries({ queryKey: ['admin-offer-groups'] });
+  }
+
+  const addClientMutation = useMutation({
+    mutationFn: (clientId: string) => api.post(`/admin/offer-groups/${groupId}/members`, { clientId }),
+    onSuccess: () => {
+      onError('');
+      invalidate();
+    },
+    onError: (err) => onError(apiErrorMessage(err)),
+  });
+
+  const addPhoneMutation = useMutation({
+    mutationFn: (r: PhoneRecipient) => api.post(`/admin/offer-groups/${groupId}/members`, { phone: r.phone, name: r.name }),
+    onSuccess: () => {
+      onError('');
+      invalidate();
+    },
+    onError: (err) => onError(apiErrorMessage(err)),
+  });
+
+  const removeMemberMutation = useMutation({
+    mutationFn: (memberId: string) => api.delete(`/admin/offer-groups/${groupId}/members/${memberId}`),
+    onSuccess: () => {
+      onError('');
+      invalidate();
+    },
+    onError: (err) => onError(apiErrorMessage(err)),
+  });
+
+  if (isLoading) return <Spinner />;
+  const memberClientIds = new Set((group?.members ?? []).filter((m) => m.clientId).map((m) => m.clientId));
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">
+          Current Members ({group?.members.length ?? 0})
+        </label>
+        <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-slate-200/60 bg-white/40 p-2 dark:border-white/10 dark:bg-white/[0.02]">
+          {(group?.members.length ?? 0) === 0 && <p className="p-1 text-xs text-slate-400">No members yet.</p>}
+          {group?.members.map((m) => (
+            <div key={m.id} className="flex items-center justify-between gap-2 rounded-md px-1.5 py-1 text-xs">
+              <span className="text-slate-700 dark:text-slate-200">
+                {m.client ? (
+                  <>
+                    {m.client.businessName} <span className="text-slate-400">— {m.client.user.email}</span>
+                  </>
+                ) : (
+                  <>
+                    {m.name ? `${m.name} — ` : ''}
+                    <span className="font-mono text-slate-400">{m.phone}</span>
+                  </>
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={() => removeMemberMutation.mutate(m.id)}
+                className="text-slate-400 hover:text-red-500"
+                aria-label="Remove"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Add Clients</label>
+        <div className="max-h-32 space-y-1 overflow-y-auto rounded-lg border border-slate-200/60 bg-white/40 p-2 dark:border-white/10 dark:bg-white/[0.02]">
+          {(clientOptions?.length ?? 0) === 0 && <p className="p-1 text-xs text-slate-400">No clients found.</p>}
+          {clientOptions?.map((c) => (
+            <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-xs hover:bg-slate-500/5">
+              <input
+                type="checkbox"
+                checked={memberClientIds.has(c.id)}
+                disabled={memberClientIds.has(c.id) || addClientMutation.isPending}
+                onChange={() => addClientMutation.mutate(c.id)}
+                className="accent-brand-500"
+              />
+              <span className="text-slate-700 dark:text-slate-200">{c.businessName}</span>
+              <span className="truncate text-slate-400">{c.user.email}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Add Phone Number</label>
+        <PhoneNumberEntry recipients={[]} onAdd={(r) => addPhoneMutation.mutate(r)} onRemove={() => {}} />
+      </div>
+    </div>
+  );
+}
+
+/** Named, reusable contact lists mixing registered clients and manual phone numbers, targetable from any campaign. */
+function GroupsPanel({ onError }: { onError: (msg: string) => void }) {
+  const queryClient = useQueryClient();
+  const [newGroupName, setNewGroupName] = useState('');
+  const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
+
+  const { data: groups, isLoading } = useQuery<OfferGroup[]>({
+    queryKey: ['admin-offer-groups'],
+    queryFn: async () => (await api.get('/admin/offer-groups')).data.data,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () => api.post('/admin/offer-groups', { name: newGroupName }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-offer-groups'] });
+      setNewGroupName('');
+      onError('');
+    },
+    onError: (err) => onError(apiErrorMessage(err)),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.delete(`/admin/offer-groups/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-offer-groups'] });
+      onError('');
+    },
+    onError: (err) => onError(apiErrorMessage(err)),
+  });
+
+  return (
+    <Card className="p-6 animate-tab-content space-y-4">
+      <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+        <span className="h-2 w-2 rounded-full bg-brand-500" />
+        Contact Groups
+      </h2>
+      <p className="text-xs text-slate-500 dark:text-slate-400">
+        Build a named list once, mixing registered clients and manual phone numbers, then target it from any campaign.
+      </p>
+
+      <div className="flex items-center gap-2">
+        <Input
+          placeholder="Group name, e.g. VIP Clients"
+          value={newGroupName}
+          onChange={(e) => setNewGroupName(e.target.value)}
+          className="text-xs"
+        />
+        <Button
+          type="button"
+          onClick={() => createMutation.mutate()}
+          disabled={!newGroupName.trim() || createMutation.isPending}
+          className="px-3 py-1.5 text-xs whitespace-nowrap"
+        >
+          {createMutation.isPending ? 'Creating...' : '+ Create Group'}
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <Spinner />
+      ) : (
+        <div className="space-y-2">
+          {groups?.map((g) => (
+            <div key={g.id} className="rounded-xl border border-slate-200/60 p-3 dark:border-white/10">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-bold text-slate-800 dark:text-slate-100">{g.name}</p>
+                  <p className="text-[11px] text-slate-400">{g._count.members} member(s)</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="secondary"
+                    className="px-2.5 py-1 text-xs"
+                    onClick={() => setExpandedGroupId((id) => (id === g.id ? null : g.id))}
+                  >
+                    {expandedGroupId === g.id ? 'Hide Members' : 'Manage Members'}
+                  </Button>
+                  <Button variant="danger" className="px-2.5 py-1 text-xs" onClick={() => deleteMutation.mutate(g.id)}>
+                    Delete
+                  </Button>
+                </div>
+              </div>
+              {expandedGroupId === g.id && (
+                <div className="mt-3 border-t border-slate-100 pt-3 dark:border-white/5">
+                  <GroupMembersPanel groupId={g.id} onError={onError} />
+                </div>
+              )}
+            </div>
+          ))}
+          {groups?.length === 0 && <p className="py-6 text-center text-xs text-slate-400">No groups yet — create one above.</p>}
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -270,6 +495,9 @@ export default function AdminOffers() {
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'ACTIVE' | 'COMPLETED' | 'TRASH'>('ALL');
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [showGroups, setShowGroups] = useState(false);
+  const [createGroupId, setCreateGroupId] = useState('');
+  const [groupId, setGroupId] = useState<Record<string, string>>({});
 
   const { data: campaigns, isLoading } = useQuery<Campaign[]>({
     queryKey: ['admin-offers'],
@@ -287,12 +515,18 @@ export default function AdminOffers() {
     queryFn: async () => (await api.get('/admin/offers/trash')).data.data,
   });
 
+  const { data: offerGroups } = useQuery<OfferGroup[]>({
+    queryKey: ['admin-offer-groups'],
+    queryFn: async () => (await api.get('/admin/offer-groups')).data.data,
+  });
+
   function resetCreateForm() {
     setForm({ name: '', message: '', mediaUrl: '', mediaType: '', mediaFileName: '' });
     setAiPrompt('');
     setCreateTarget('ACTIVE_CLIENTS');
     setCreateSelectedClients([]);
     setCreatePhoneRecipients([]);
+    setCreateGroupId('');
     setEditingId(null);
     setShowCreate(false);
   }
@@ -358,6 +592,7 @@ export default function AdminOffers() {
         target: createTarget,
         clientIds: createTarget === 'SPECIFIC_CLIENTS' ? createSelectedClients : undefined,
         phoneNumbers: createTarget === 'PHONE_NUMBERS' ? createPhoneRecipients : undefined,
+        groupId: createTarget === 'GROUP' ? createGroupId : undefined,
       });
     },
     onSuccess: () => {
@@ -402,6 +637,7 @@ export default function AdminOffers() {
         target: chosenTarget,
         clientIds: chosenTarget === 'SPECIFIC_CLIENTS' ? selectedClients[id] ?? [] : undefined,
         phoneNumbers: chosenTarget === 'PHONE_NUMBERS' ? phoneRecipients[id] ?? [] : undefined,
+        groupId: chosenTarget === 'GROUP' ? groupId[id] : undefined,
       });
     },
     onSuccess: () => {
@@ -482,10 +718,17 @@ export default function AdminOffers() {
             Deliver broadcast promotional announcements and feature updates to registered tenant clients. Supports <code className="bg-slate-500/10 px-1 py-0.5 rounded text-brand-600 dark:text-brand-400 font-mono">{'{{businessName}}'}</code>.
           </p>
         </div>
-        <Button onClick={() => (showCreate ? resetCreateForm() : setShowCreate(true))} className="text-xs">
-          {showCreate ? 'Close Campaign Form' : '+ New Campaign'}
-        </Button>
+        <div className="flex items-center gap-2.5">
+          <Button variant="secondary" onClick={() => setShowGroups((s) => !s)} className="text-xs">
+            {showGroups ? 'Close Groups' : 'Manage Groups'}
+          </Button>
+          <Button onClick={() => (showCreate ? resetCreateForm() : setShowCreate(true))} className="text-xs">
+            {showCreate ? 'Close Campaign Form' : '+ New Campaign'}
+          </Button>
+        </div>
       </div>
+
+      {showGroups && <GroupsPanel onError={setError} />}
 
       {/* Campaign Form */}
       {showCreate && (
@@ -570,6 +813,7 @@ export default function AdminOffers() {
                   <option value="ALL_CLIENTS">All clients</option>
                   <option value="SPECIFIC_CLIENTS">Specific client(s)...</option>
                   <option value="PHONE_NUMBERS">Phone number(s)...</option>
+                  <option value="GROUP">Contact group...</option>
                 </Select>
                 {createTarget === 'SPECIFIC_CLIENTS' && (
                   <div className="mt-2">
@@ -584,6 +828,16 @@ export default function AdminOffers() {
                       onRemove={(i) => setCreatePhoneRecipients((s) => s.filter((_, idx) => idx !== i))}
                     />
                   </div>
+                )}
+                {createTarget === 'GROUP' && (
+                  <Select value={createGroupId} onChange={(e) => setCreateGroupId(e.target.value)} className="mt-2 text-xs">
+                    <option value="">Select a group...</option>
+                    {offerGroups?.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name} ({g._count.members})
+                      </option>
+                    ))}
+                  </Select>
                 )}
               </div>
             )}
@@ -616,7 +870,8 @@ export default function AdminOffers() {
                       createMutation.isPending ||
                       createAndSendMutation.isPending ||
                       (createTarget === 'SPECIFIC_CLIENTS' && createSelectedClients.length === 0) ||
-                      (createTarget === 'PHONE_NUMBERS' && createPhoneRecipients.length === 0)
+                      (createTarget === 'PHONE_NUMBERS' && createPhoneRecipients.length === 0) ||
+                      (createTarget === 'GROUP' && !createGroupId)
                     }
                     className="text-xs"
                   >
@@ -704,6 +959,7 @@ export default function AdminOffers() {
                       <option value="ALL_CLIENTS">All clients</option>
                       <option value="SPECIFIC_CLIENTS">Specific client(s)...</option>
                       <option value="PHONE_NUMBERS">Phone number(s)...</option>
+                      <option value="GROUP">Contact group...</option>
                     </Select>
                     <Button
                       className="px-3 py-1.5 text-xs whitespace-nowrap"
@@ -711,7 +967,8 @@ export default function AdminOffers() {
                       disabled={
                         sendMutation.isPending ||
                         (target[c.id] === 'SPECIFIC_CLIENTS' && !(selectedClients[c.id]?.length)) ||
-                        (target[c.id] === 'PHONE_NUMBERS' && !(phoneRecipients[c.id]?.length))
+                        (target[c.id] === 'PHONE_NUMBERS' && !(phoneRecipients[c.id]?.length)) ||
+                        (target[c.id] === 'GROUP' && !groupId[c.id])
                       }
                     >
                       {sendMutation.isPending ? 'Queuing...' : 'Broadcast Now'}
@@ -730,6 +987,20 @@ export default function AdminOffers() {
                       onAdd={(r) => addPhoneRecipient(c.id, r)}
                       onRemove={(i) => removePhoneRecipient(c.id, i)}
                     />
+                  )}
+                  {target[c.id] === 'GROUP' && (
+                    <Select
+                      value={groupId[c.id] ?? ''}
+                      onChange={(e) => setGroupId((g) => ({ ...g, [c.id]: e.target.value }))}
+                      className="text-xs"
+                    >
+                      <option value="">Select a group...</option>
+                      {offerGroups?.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.name} ({g._count.members})
+                        </option>
+                      ))}
+                    </Select>
                   )}
                 </div>
               )}
