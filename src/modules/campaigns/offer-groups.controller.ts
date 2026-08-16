@@ -1,8 +1,11 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { OfferGroupsService } from './offer-groups.service';
 import { UpsertOfferGroupDto, AddGroupMemberDto } from './dto/offer-group.dto';
+
+const MAX_VCF_BYTES = 5 * 1024 * 1024;
 
 @Controller('admin/offer-groups')
 @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
@@ -44,5 +47,23 @@ export class OfferGroupsController {
   @Delete(':id/members/:memberId')
   removeMember(@Param('id') id: string, @Param('memberId') memberId: string) {
     return this.offerGroupsService.removeMember(id, memberId);
+  }
+
+  /** Bulk-adds contacts from an uploaded .vcf (vCard) export — e.g. from Google/Apple/Outlook contacts. */
+  @Post(':id/members/import-vcf')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: MAX_VCF_BYTES },
+      fileFilter: (_req, file, callback) => {
+        if (!/\.vcf$/i.test(file.originalname)) {
+          return callback(new BadRequestException('Please upload a .vcf (vCard) file.'), false);
+        }
+        callback(null, true);
+      },
+    }),
+  )
+  importVcf(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded.');
+    return this.offerGroupsService.importVcf(id, file);
   }
 }

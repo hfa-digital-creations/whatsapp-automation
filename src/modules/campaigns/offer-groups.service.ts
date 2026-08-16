@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/services/prisma.service';
+import { parseVcf } from './vcf-parser';
 
 @Injectable()
 export class OfferGroupsService {
@@ -64,5 +65,36 @@ export class OfferGroupsService {
     if (!member) throw new NotFoundException('Member not found in this group.');
     await this.prisma.offerGroupMember.delete({ where: { id: memberId } });
     return { removed: true };
+  }
+
+  /** Bulk-adds every contact with a phone number found in an uploaded .vcf file, skipping ones already in the group. */
+  async importVcf(groupId: string, file: Express.Multer.File) {
+    await this.getById(groupId);
+    const contacts = parseVcf(file.buffer.toString('utf8'));
+    if (!contacts.length) {
+      throw new BadRequestException('No contacts with a phone number were found in that file.');
+    }
+
+    const existingMembers = await this.prisma.offerGroupMember.findMany({
+      where: { groupId, clientId: null },
+      select: { phone: true },
+    });
+    const existingPhones = new Set(existingMembers.map((m) => m.phone));
+
+    let imported = 0;
+    let skipped = 0;
+    for (const contact of contacts) {
+      if (existingPhones.has(contact.phone)) {
+        skipped++;
+        continue;
+      }
+      await this.prisma.offerGroupMember.create({
+        data: { groupId, phone: contact.phone, name: contact.name },
+      });
+      existingPhones.add(contact.phone);
+      imported++;
+    }
+
+    return { imported, skipped, total: contacts.length };
   }
 }
