@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { CampaignStatus, CampaignType, MessageStatus, UserStatus } from '@prisma/client';
+import { CampaignStatus, CampaignType, MessageStatus, Prisma, UserStatus } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
@@ -84,6 +84,58 @@ export class OffersService {
 
   listTrash() {
     return this.campaignsService.listTrash(CampaignType.OFFER);
+  }
+
+  /**
+   * Only DRAFT campaigns can be edited — once RUNNING or COMPLETED, its content is either
+   * actively being sent or is a record of what actually went out, neither of which should
+   * change underneath a send. Replacing the media clears the old file from disk so nothing
+   * orphans; passing mediaUrl: null clears the attachment entirely.
+   */
+  async update(
+    campaignId: string,
+    updates: {
+      name?: string;
+      message?: string;
+      mediaUrl?: string | null;
+      mediaType?: OfferMediaType | null;
+      mediaFileName?: string | null;
+    },
+  ) {
+    const campaign = await this.campaignsService.getById(campaignId);
+    if (campaign.type !== CampaignType.OFFER) throw new BadRequestException('Not an offer campaign.');
+    if (campaign.deletedAt) throw new BadRequestException('This campaign is in the trash — restore it first.');
+    if (campaign.status !== CampaignStatus.DRAFT) {
+      throw new BadRequestException('Only draft campaigns can be edited.');
+    }
+
+    const config = (campaign.config as OfferCampaignConfig | null) ?? {};
+    const nextConfig: OfferCampaignConfig = { ...config };
+
+    if (updates.message !== undefined) nextConfig.message = updates.message;
+
+    if (updates.mediaUrl !== undefined) {
+      if (config.mediaUrl && config.mediaUrl !== updates.mediaUrl) {
+        fs.rmSync(this.resolveMediaPath(config.mediaUrl), { force: true });
+      }
+      if (updates.mediaUrl === null) {
+        delete nextConfig.mediaUrl;
+        delete nextConfig.mediaType;
+        delete nextConfig.mediaFileName;
+      } else {
+        nextConfig.mediaUrl = updates.mediaUrl;
+        nextConfig.mediaType = updates.mediaType ?? undefined;
+        nextConfig.mediaFileName = updates.mediaFileName ?? undefined;
+      }
+    }
+
+    return this.prisma.campaign.update({
+      where: { id: campaignId },
+      data: {
+        name: updates.name ?? campaign.name,
+        config: nextConfig as Prisma.InputJsonValue,
+      },
+    });
   }
 
   /** Blocked while RUNNING so a trash action can never race an in-progress batched send. Media/history are kept in case of restore. */

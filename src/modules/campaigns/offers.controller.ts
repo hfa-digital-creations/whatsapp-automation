@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -8,6 +8,7 @@ import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-
 import { OffersService } from './offers.service';
 import { OfferSendJobData } from './offer-send.processor';
 import { CreateOfferDto } from './dto/create-offer.dto';
+import { UpdateOfferDto } from './dto/update-offer.dto';
 import { SendOfferDto } from './dto/send-offer.dto';
 import { GenerateOfferTextDto } from './dto/generate-offer-text.dto';
 import { AuditLogService } from '../audit-log/audit-log.service';
@@ -44,6 +45,20 @@ export class OffersController {
       mediaType: dto.mediaType,
       mediaFileName: dto.mediaFileName,
     });
+  }
+
+  /** Only DRAFT campaigns can be edited — see OffersService.update() for why. */
+  @Patch(':id')
+  async update(@Param('id') id: string, @Body() dto: UpdateOfferDto, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
+    const result = await this.offersService.update(id, dto);
+    await this.auditLogService.record({
+      adminId: admin.userId,
+      action: 'OFFER_CAMPAIGN_UPDATED',
+      targetType: 'Campaign',
+      targetId: id,
+      ipAddress: req.ip,
+    });
+    return result;
   }
 
   /** Uploads an image/video/PDF to attach to an offer campaign's broadcast message. */
