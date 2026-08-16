@@ -44,6 +44,26 @@ export default function AdminClients() {
     queryFn: async () => (await api.get('/admin/plans', { params: { status: 'ACTIVE' } })).data.data,
   });
 
+  const exportMutation = useMutation({
+    mutationFn: async (format: 'vcf' | 'csv') => {
+      const res = await api.get('/admin/clients/export', {
+        params: { format, search: search || undefined, status: status || undefined },
+        responseType: 'blob',
+      });
+      return { blob: res.data as Blob, format };
+    },
+    onSuccess: ({ blob, format }) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `clients-export.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
+  });
+
   const [form, setForm] = useState({ businessName: '', email: '', phone: '', planId: '' });
   const [createError, setCreateError] = useState('');
   const createMutation = useMutation({
@@ -74,26 +94,44 @@ export default function AdminClients() {
             Manage client businesses, active subscription plans, and connected sessions
           </p>
         </div>
-        <Button
-          onClick={() => setShowCreate((s) => !s)}
-          className="flex items-center gap-2"
-        >
-          {showCreate ? (
-            <>
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-              <span>Cancel</span>
-            </>
-          ) : (
-            <>
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
-              </svg>
-              <span>New Client</span>
-            </>
-          )}
-        </Button>
+        <div className="flex items-center gap-2.5">
+          <Button
+            variant="secondary"
+            className="text-xs"
+            onClick={() => exportMutation.mutate('vcf')}
+            disabled={exportMutation.isPending}
+          >
+            {exportMutation.isPending ? 'Exporting...' : 'Export .vcf'}
+          </Button>
+          <Button
+            variant="secondary"
+            className="text-xs"
+            onClick={() => exportMutation.mutate('csv')}
+            disabled={exportMutation.isPending}
+          >
+            {exportMutation.isPending ? 'Exporting...' : 'Export .csv'}
+          </Button>
+          <Button
+            onClick={() => setShowCreate((s) => !s)}
+            className="flex items-center gap-2"
+          >
+            {showCreate ? (
+              <>
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                <span>Cancel</span>
+              </>
+            ) : (
+              <>
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+                </svg>
+                <span>New Client</span>
+              </>
+            )}
+          </Button>
+        </div>
       </div>
 
       {/* Creation Glass Form */}

@@ -345,6 +345,24 @@ function GroupsPanel({ onError }: { onError: (msg: string) => void }) {
     onError: (err) => onError(apiErrorMessage(err)),
   });
 
+  const exportMutation = useMutation({
+    mutationFn: async ({ id, format }: { id: string; format: 'vcf' | 'csv' }) => {
+      const res = await api.get(`/admin/offer-groups/${id}/export`, { params: { format }, responseType: 'blob' });
+      return { blob: res.data as Blob, format };
+    },
+    onSuccess: ({ blob, format }) => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `group-contacts-export.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
+    onError: (err) => onError(apiErrorMessage(err)),
+  });
+
   return (
     <Card className="p-6 animate-tab-content space-y-4">
       <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
@@ -383,13 +401,29 @@ function GroupsPanel({ onError }: { onError: (msg: string) => void }) {
                   <p className="text-sm font-bold text-slate-800 dark:text-slate-100">{g.name}</p>
                   <p className="text-[11px] text-slate-400">{g._count.members} member(s)</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Button
                     variant="secondary"
                     className="px-2.5 py-1 text-xs"
                     onClick={() => setExpandedGroupId((id) => (id === g.id ? null : g.id))}
                   >
                     {expandedGroupId === g.id ? 'Hide Members' : 'Manage Members'}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    className="px-2.5 py-1 text-xs"
+                    disabled={exportMutation.isPending}
+                    onClick={() => exportMutation.mutate({ id: g.id, format: 'vcf' })}
+                  >
+                    Export .vcf
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    className="px-2.5 py-1 text-xs"
+                    disabled={exportMutation.isPending}
+                    onClick={() => exportMutation.mutate({ id: g.id, format: 'csv' })}
+                  >
+                    Export .csv
                   </Button>
                   <Button variant="danger" className="px-2.5 py-1 text-xs" onClick={() => deleteMutation.mutate(g.id)}>
                     Delete
