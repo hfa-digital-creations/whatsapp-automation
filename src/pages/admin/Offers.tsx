@@ -23,6 +23,11 @@ interface ClientOption {
   user: { email: string };
 }
 
+interface PhoneRecipient {
+  phone: string;
+  name?: string;
+}
+
 const STATUS_TONE: Record<string, 'gray' | 'green' | 'amber' | 'blue'> = {
   DRAFT: 'gray', SCHEDULED: 'blue', RUNNING: 'amber', COMPLETED: 'green', CANCELLED: 'gray',
 };
@@ -69,6 +74,64 @@ function ClientPicker({
           <span className="truncate text-slate-400">{client.user.email}</span>
         </label>
       ))}
+    </div>
+  );
+}
+
+function PhoneNumberEntry({
+  recipients,
+  onAdd,
+  onRemove,
+}: {
+  recipients: PhoneRecipient[];
+  onAdd: (r: PhoneRecipient) => void;
+  onRemove: (index: number) => void;
+}) {
+  const [phone, setPhone] = useState('');
+  const [name, setName] = useState('');
+
+  function handleAdd() {
+    const trimmed = phone.trim();
+    if (!trimmed) return;
+    onAdd({ phone: trimmed, name: name.trim() || undefined });
+    setPhone('');
+    setName('');
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          placeholder="Phone number (e.g. 919876543210)"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          className="flex-1 min-w-[160px] text-xs"
+        />
+        <Input
+          placeholder="Name (optional)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="flex-1 min-w-[120px] text-xs"
+        />
+        <Button type="button" variant="secondary" onClick={handleAdd} disabled={!phone.trim()} className="px-3 py-1.5 text-xs whitespace-nowrap">
+          + Add
+        </Button>
+      </div>
+      {recipients.length > 0 && (
+        <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-slate-200/60 bg-white/40 p-2 dark:border-white/10 dark:bg-white/[0.02]">
+          {recipients.map((r, i) => (
+            <div key={`${r.phone}-${i}`} className="flex items-center justify-between gap-2 rounded-md px-1.5 py-1 text-xs">
+              <span className="text-slate-700 dark:text-slate-200">
+                {r.name ? `${r.name} — ` : ''}
+                <span className="font-mono text-slate-500 dark:text-slate-400">{r.phone}</span>
+              </span>
+              <button type="button" onClick={() => onRemove(i)} className="text-slate-400 hover:text-red-500" aria-label="Remove">
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -197,9 +260,11 @@ export default function AdminOffers() {
   const [aiPrompt, setAiPrompt] = useState('');
   const [createTarget, setCreateTarget] = useState('ACTIVE_CLIENTS');
   const [createSelectedClients, setCreateSelectedClients] = useState<string[]>([]);
+  const [createPhoneRecipients, setCreatePhoneRecipients] = useState<PhoneRecipient[]>([]);
   const [pendingAction, setPendingAction] = useState<'draft' | 'send'>('draft');
   const [target, setTarget] = useState<Record<string, string>>({});
   const [selectedClients, setSelectedClients] = useState<Record<string, string[]>>({});
+  const [phoneRecipients, setPhoneRecipients] = useState<Record<string, PhoneRecipient[]>>({});
   const [error, setError] = useState('');
   const [result, setResult] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'ACTIVE' | 'COMPLETED' | 'TRASH'>('ALL');
@@ -226,6 +291,7 @@ export default function AdminOffers() {
     setAiPrompt('');
     setCreateTarget('ACTIVE_CLIENTS');
     setCreateSelectedClients([]);
+    setCreatePhoneRecipients([]);
     setShowCreate(false);
   }
 
@@ -259,6 +325,7 @@ export default function AdminOffers() {
       await api.post(`/admin/offers/${newId}/send`, {
         target: createTarget,
         clientIds: createTarget === 'SPECIFIC_CLIENTS' ? createSelectedClients : undefined,
+        phoneNumbers: createTarget === 'PHONE_NUMBERS' ? createPhoneRecipients : undefined,
       });
     },
     onSuccess: () => {
@@ -302,6 +369,7 @@ export default function AdminOffers() {
       return api.post(`/admin/offers/${id}/send`, {
         target: chosenTarget,
         clientIds: chosenTarget === 'SPECIFIC_CLIENTS' ? selectedClients[id] ?? [] : undefined,
+        phoneNumbers: chosenTarget === 'PHONE_NUMBERS' ? phoneRecipients[id] ?? [] : undefined,
       });
     },
     onSuccess: () => {
@@ -332,6 +400,14 @@ export default function AdminOffers() {
 
   function toggleCreateSelectedClient(clientId: string) {
     setCreateSelectedClients((s) => (s.includes(clientId) ? s.filter((id) => id !== clientId) : [...s, clientId]));
+  }
+
+  function addPhoneRecipient(campaignId: string, recipient: PhoneRecipient) {
+    setPhoneRecipients((p) => ({ ...p, [campaignId]: [...(p[campaignId] ?? []), recipient] }));
+  }
+
+  function removePhoneRecipient(campaignId: string, index: number) {
+    setPhoneRecipients((p) => ({ ...p, [campaignId]: (p[campaignId] ?? []).filter((_, i) => i !== index) }));
   }
 
   function handleSubmit(e: FormEvent) {
@@ -458,10 +534,20 @@ export default function AdminOffers() {
                 <option value="ACTIVE_CLIENTS">Active clients only</option>
                 <option value="ALL_CLIENTS">All clients</option>
                 <option value="SPECIFIC_CLIENTS">Specific client(s)...</option>
+                <option value="PHONE_NUMBERS">Phone number(s)...</option>
               </Select>
               {createTarget === 'SPECIFIC_CLIENTS' && (
                 <div className="mt-2">
                   <ClientPicker clients={clientOptions ?? []} selected={createSelectedClients} onToggle={toggleCreateSelectedClient} />
+                </div>
+              )}
+              {createTarget === 'PHONE_NUMBERS' && (
+                <div className="mt-2">
+                  <PhoneNumberEntry
+                    recipients={createPhoneRecipients}
+                    onAdd={(r) => setCreatePhoneRecipients((s) => [...s, r])}
+                    onRemove={(i) => setCreatePhoneRecipients((s) => s.filter((_, idx) => idx !== i))}
+                  />
                 </div>
               )}
             </div>
@@ -482,7 +568,8 @@ export default function AdminOffers() {
                 disabled={
                   createMutation.isPending ||
                   createAndSendMutation.isPending ||
-                  (createTarget === 'SPECIFIC_CLIENTS' && createSelectedClients.length === 0)
+                  (createTarget === 'SPECIFIC_CLIENTS' && createSelectedClients.length === 0) ||
+                  (createTarget === 'PHONE_NUMBERS' && createPhoneRecipients.length === 0)
                 }
                 className="text-xs"
               >
@@ -562,13 +649,15 @@ export default function AdminOffers() {
                       <option value="ACTIVE_CLIENTS">Active clients only</option>
                       <option value="ALL_CLIENTS">All clients</option>
                       <option value="SPECIFIC_CLIENTS">Specific client(s)...</option>
+                      <option value="PHONE_NUMBERS">Phone number(s)...</option>
                     </Select>
                     <Button
                       className="px-3 py-1.5 text-xs whitespace-nowrap"
                       onClick={() => sendMutation.mutate(c.id)}
                       disabled={
                         sendMutation.isPending ||
-                        (target[c.id] === 'SPECIFIC_CLIENTS' && !(selectedClients[c.id]?.length))
+                        (target[c.id] === 'SPECIFIC_CLIENTS' && !(selectedClients[c.id]?.length)) ||
+                        (target[c.id] === 'PHONE_NUMBERS' && !(phoneRecipients[c.id]?.length))
                       }
                     >
                       {sendMutation.isPending ? 'Queuing...' : 'Broadcast Now'}
@@ -579,6 +668,13 @@ export default function AdminOffers() {
                       clients={clientOptions ?? []}
                       selected={selectedClients[c.id] ?? []}
                       onToggle={(clientId) => toggleSelectedClient(c.id, clientId)}
+                    />
+                  )}
+                  {target[c.id] === 'PHONE_NUMBERS' && (
+                    <PhoneNumberEntry
+                      recipients={phoneRecipients[c.id] ?? []}
+                      onAdd={(r) => addPhoneRecipient(c.id, r)}
+                      onRemove={(i) => removePhoneRecipient(c.id, i)}
                     />
                   )}
                 </div>
