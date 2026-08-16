@@ -269,6 +269,7 @@ export default function AdminOffers() {
   const [result, setResult] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'ACTIVE' | 'COMPLETED' | 'TRASH'>('ALL');
   const [showCreate, setShowCreate] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const { data: campaigns, isLoading } = useQuery<Campaign[]>({
     queryKey: ['admin-offers'],
@@ -292,7 +293,22 @@ export default function AdminOffers() {
     setCreateTarget('ACTIVE_CLIENTS');
     setCreateSelectedClients([]);
     setCreatePhoneRecipients([]);
+    setEditingId(null);
     setShowCreate(false);
+  }
+
+  function startEdit(campaign: Campaign) {
+    setEditingId(campaign.id);
+    setForm({
+      name: campaign.name,
+      message: campaign.config?.message ?? '',
+      mediaUrl: campaign.config?.mediaUrl ?? '',
+      mediaType: campaign.config?.mediaType ?? '',
+      mediaFileName: campaign.config?.mediaFileName ?? '',
+    });
+    setAiPrompt('');
+    setShowCreate(true);
+    setError('');
   }
 
   const createMutation = useMutation({
@@ -303,6 +319,22 @@ export default function AdminOffers() {
         mediaUrl: form.mediaUrl || undefined,
         mediaType: form.mediaType || undefined,
         mediaFileName: form.mediaFileName || undefined,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-offers'] });
+      resetCreateForm();
+    },
+    onError: (err) => setError(apiErrorMessage(err)),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: () =>
+      api.patch(`/admin/offers/${editingId}`, {
+        name: form.name,
+        message: form.message,
+        mediaUrl: form.mediaUrl || null,
+        mediaType: form.mediaType || null,
+        mediaFileName: form.mediaFileName || null,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-offers'] });
@@ -413,7 +445,9 @@ export default function AdminOffers() {
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
-    if (pendingAction === 'send') {
+    if (editingId) {
+      updateMutation.mutate();
+    } else if (pendingAction === 'send') {
       createAndSendMutation.mutate();
     } else {
       createMutation.mutate();
@@ -448,7 +482,7 @@ export default function AdminOffers() {
             Deliver broadcast promotional announcements and feature updates to registered tenant clients. Supports <code className="bg-slate-500/10 px-1 py-0.5 rounded text-brand-600 dark:text-brand-400 font-mono">{'{{businessName}}'}</code>.
           </p>
         </div>
-        <Button onClick={() => setShowCreate((s) => !s)} className="text-xs">
+        <Button onClick={() => (showCreate ? resetCreateForm() : setShowCreate(true))} className="text-xs">
           {showCreate ? 'Close Campaign Form' : '+ New Campaign'}
         </Button>
       </div>
@@ -458,7 +492,7 @@ export default function AdminOffers() {
         <Card className="p-6 animate-tab-content">
           <h2 className="mb-4 text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-brand-500" />
-            Create Promotional Broadcast
+            {editingId ? 'Edit Broadcast' : 'Create Promotional Broadcast'}
           </h2>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -528,53 +562,68 @@ export default function AdminOffers() {
               <p className="mt-1 text-[11px] text-slate-400">Images up to 5MB, video up to 16MB, PDF up to 16MB.</p>
             </div>
 
-            <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Send To (used only if you send immediately)</label>
-              <Select value={createTarget} onChange={(e) => setCreateTarget(e.target.value)} className="text-xs">
-                <option value="ACTIVE_CLIENTS">Active clients only</option>
-                <option value="ALL_CLIENTS">All clients</option>
-                <option value="SPECIFIC_CLIENTS">Specific client(s)...</option>
-                <option value="PHONE_NUMBERS">Phone number(s)...</option>
-              </Select>
-              {createTarget === 'SPECIFIC_CLIENTS' && (
-                <div className="mt-2">
-                  <ClientPicker clients={clientOptions ?? []} selected={createSelectedClients} onToggle={toggleCreateSelectedClient} />
-                </div>
-              )}
-              {createTarget === 'PHONE_NUMBERS' && (
-                <div className="mt-2">
-                  <PhoneNumberEntry
-                    recipients={createPhoneRecipients}
-                    onAdd={(r) => setCreatePhoneRecipients((s) => [...s, r])}
-                    onRemove={(i) => setCreatePhoneRecipients((s) => s.filter((_, idx) => idx !== i))}
-                  />
-                </div>
-              )}
-            </div>
+            {!editingId && (
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Send To (used only if you send immediately)</label>
+                <Select value={createTarget} onChange={(e) => setCreateTarget(e.target.value)} className="text-xs">
+                  <option value="ACTIVE_CLIENTS">Active clients only</option>
+                  <option value="ALL_CLIENTS">All clients</option>
+                  <option value="SPECIFIC_CLIENTS">Specific client(s)...</option>
+                  <option value="PHONE_NUMBERS">Phone number(s)...</option>
+                </Select>
+                {createTarget === 'SPECIFIC_CLIENTS' && (
+                  <div className="mt-2">
+                    <ClientPicker clients={clientOptions ?? []} selected={createSelectedClients} onToggle={toggleCreateSelectedClient} />
+                  </div>
+                )}
+                {createTarget === 'PHONE_NUMBERS' && (
+                  <div className="mt-2">
+                    <PhoneNumberEntry
+                      recipients={createPhoneRecipients}
+                      onAdd={(r) => setCreatePhoneRecipients((s) => [...s, r])}
+                      onRemove={(i) => setCreatePhoneRecipients((s) => s.filter((_, idx) => idx !== i))}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="flex flex-wrap items-center gap-3">
-              <Button
-                type="submit"
-                variant="secondary"
-                onClick={() => setPendingAction('draft')}
-                disabled={createMutation.isPending || createAndSendMutation.isPending}
-                className="text-xs"
-              >
-                {createMutation.isPending ? 'Saving...' : 'Save as Draft'}
-              </Button>
-              <Button
-                type="submit"
-                onClick={() => setPendingAction('send')}
-                disabled={
-                  createMutation.isPending ||
-                  createAndSendMutation.isPending ||
-                  (createTarget === 'SPECIFIC_CLIENTS' && createSelectedClients.length === 0) ||
-                  (createTarget === 'PHONE_NUMBERS' && createPhoneRecipients.length === 0)
-                }
-                className="text-xs"
-              >
-                {createAndSendMutation.isPending ? 'Sending...' : 'Create & Send Now'}
-              </Button>
+              {editingId ? (
+                <>
+                  <Button type="submit" disabled={updateMutation.isPending} className="text-xs">
+                    {updateMutation.isPending ? 'Saving Changes...' : 'Save Changes'}
+                  </Button>
+                  <Button type="button" variant="secondary" onClick={resetCreateForm} className="text-xs">
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    type="submit"
+                    variant="secondary"
+                    onClick={() => setPendingAction('draft')}
+                    disabled={createMutation.isPending || createAndSendMutation.isPending}
+                    className="text-xs"
+                  >
+                    {createMutation.isPending ? 'Saving...' : 'Save as Draft'}
+                  </Button>
+                  <Button
+                    type="submit"
+                    onClick={() => setPendingAction('send')}
+                    disabled={
+                      createMutation.isPending ||
+                      createAndSendMutation.isPending ||
+                      (createTarget === 'SPECIFIC_CLIENTS' && createSelectedClients.length === 0) ||
+                      (createTarget === 'PHONE_NUMBERS' && createPhoneRecipients.length === 0)
+                    }
+                    className="text-xs"
+                  >
+                    {createAndSendMutation.isPending ? 'Sending...' : 'Create & Send Now'}
+                  </Button>
+                </>
+              )}
             </div>
           </form>
         </Card>
@@ -614,6 +663,11 @@ export default function AdminOffers() {
                   <h3 className="text-base font-bold text-slate-900 dark:text-white">{c.name}</h3>
                   <div className="flex shrink-0 items-center gap-2">
                     <Badge tone={STATUS_TONE[c.status] ?? 'gray'}>{c.status}</Badge>
+                    {c.status === 'DRAFT' && (
+                      <Button variant="secondary" className="px-2.5 py-1 text-[11px]" onClick={() => startEdit(c)}>
+                        Edit
+                      </Button>
+                    )}
                     {c.status !== 'RUNNING' && (
                       <Button
                         variant="danger"
