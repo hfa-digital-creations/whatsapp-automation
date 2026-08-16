@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/services/prisma.service';
 import { parseVcf } from './vcf-parser';
+import { ExportContact } from '../../common/utils/contact-export.util';
 
 @Injectable()
 export class OfferGroupsService {
@@ -18,7 +19,9 @@ export class OfferGroupsService {
       where: { id },
       include: {
         members: {
-          include: { client: { select: { id: true, businessName: true, user: { select: { email: true } } } } },
+          include: {
+            client: { select: { id: true, businessName: true, user: { select: { email: true, phone: true } } } },
+          },
           orderBy: { createdAt: 'asc' },
         },
       },
@@ -65,6 +68,15 @@ export class OfferGroupsService {
     if (!member) throw new NotFoundException('Member not found in this group.');
     await this.prisma.offerGroupMember.delete({ where: { id: memberId } });
     return { removed: true };
+  }
+
+  async exportContacts(groupId: string): Promise<ExportContact[]> {
+    const group = await this.getById(groupId);
+    return group.members.map((m) =>
+      m.client
+        ? { name: m.client.businessName, phone: m.client.user.phone, email: m.client.user.email }
+        : { name: m.name ?? m.phone ?? 'Unknown', phone: m.phone, email: undefined },
+    );
   }
 
   /** Bulk-adds every contact with a phone number found in an uploaded .vcf file, skipping ones already in the group. */

@@ -1,8 +1,11 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Query, Req, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { UserRole, UserStatus } from '@prisma/client';
+import type { Response } from 'express';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RawResponse } from '../../common/decorators/raw-response.decorator';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
+import { buildCsv, buildVcf } from '../../common/utils/contact-export.util';
 import { ClientsService } from './clients.service';
 import { CreateClientDto } from './dto/create-client.dto';
 import { ActivateClientDto } from './dto/activate-client.dto';
@@ -27,6 +30,25 @@ export class ClientsController {
       skip: skip ? Number(skip) : undefined,
       take: take ? Number(take) : undefined,
     });
+  }
+
+  // Must come before ':id' — otherwise Express matches "export" as an :id value.
+  @Get('export')
+  @RawResponse()
+  async export(
+    @Query('format') format: string | undefined,
+    @Query('search') search: string | undefined,
+    @Query('status') status: UserStatus | undefined,
+    @Res() res: Response,
+  ) {
+    if (format !== 'vcf' && format !== 'csv') {
+      throw new BadRequestException('format must be "vcf" or "csv".');
+    }
+    const contacts = await this.clientsService.exportContacts({ search, status });
+    const content = format === 'csv' ? buildCsv(contacts) : buildVcf(contacts);
+    res.setHeader('Content-Type', format === 'csv' ? 'text/csv; charset=utf-8' : 'text/vcard; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="clients-export.${format}"`);
+    res.send(content);
   }
 
   @Get(':id')

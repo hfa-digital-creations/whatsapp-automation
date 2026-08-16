@@ -133,6 +133,30 @@ export class ClientsService {
     };
   }
 
+  /** Same filters as list(), but returns every match (no pagination) as plain export rows. */
+  async exportContacts(params: { search?: string; status?: UserStatus }) {
+    const { search, status } = params;
+    const where: Prisma.ClientWhereInput = {
+      user: {
+        status,
+        OR: search
+          ? [
+              { email: { contains: search, mode: 'insensitive' } },
+              { phone: { contains: search, mode: 'insensitive' } },
+            ]
+          : undefined,
+      },
+      businessName: search ? { contains: search, mode: 'insensitive' } : undefined,
+    };
+
+    const clients = await this.prisma.client.findMany({
+      where,
+      include: { user: true },
+      orderBy: { businessName: 'asc' },
+    });
+    return clients.map((c) => ({ name: c.businessName, phone: c.user.phone, email: c.user.email }));
+  }
+
   /**
    * Explicit admin action (spec §2, Rule 1 & 2 — payment existing is never enough on
    * its own). Runs the state changes atomically, then fires notifications afterward

@@ -1,7 +1,10 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
+import type { Response } from 'express';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { RawResponse } from '../../common/decorators/raw-response.decorator';
+import { buildCsv, buildVcf } from '../../common/utils/contact-export.util';
 import { OfferGroupsService } from './offer-groups.service';
 import { UpsertOfferGroupDto, AddGroupMemberDto } from './dto/offer-group.dto';
 
@@ -47,6 +50,20 @@ export class OfferGroupsController {
   @Delete(':id/members/:memberId')
   removeMember(@Param('id') id: string, @Param('memberId') memberId: string) {
     return this.offerGroupsService.removeMember(id, memberId);
+  }
+
+  /** Exports the group's members (client and manual phone members alike) as a downloadable .vcf or .csv file. */
+  @Get(':id/export')
+  @RawResponse()
+  async export(@Param('id') id: string, @Query('format') format: string | undefined, @Res() res: Response) {
+    if (format !== 'vcf' && format !== 'csv') {
+      throw new BadRequestException('format must be "vcf" or "csv".');
+    }
+    const contacts = await this.offerGroupsService.exportContacts(id);
+    const content = format === 'csv' ? buildCsv(contacts) : buildVcf(contacts);
+    res.setHeader('Content-Type', format === 'csv' ? 'text/csv; charset=utf-8' : 'text/vcard; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="group-contacts-export.${format}"`);
+    res.send(content);
   }
 
   /** Bulk-adds contacts from an uploaded .vcf (vCard) export — e.g. from Google/Apple/Outlook contacts. */
