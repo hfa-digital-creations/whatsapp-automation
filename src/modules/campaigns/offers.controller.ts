@@ -6,6 +6,7 @@ import { UserRole } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { OffersService } from './offers.service';
+import { OfferGroupsService } from './offer-groups.service';
 import { OfferSendJobData } from './offer-send.processor';
 import { CreateOfferDto } from './dto/create-offer.dto';
 import { UpdateOfferDto } from './dto/update-offer.dto';
@@ -19,6 +20,7 @@ import { MAX_OFFER_MEDIA_BYTES } from './offer-media.util';
 export class OffersController {
   constructor(
     private readonly offersService: OffersService,
+    private readonly offerGroupsService: OfferGroupsService,
     private readonly auditLogService: AuditLogService,
     @InjectQueue('offers') private readonly offersQueue: Queue<OfferSendJobData>,
   ) {}
@@ -101,11 +103,16 @@ export class OffersController {
         throw new BadRequestException('Add at least one phone number to send this offer to.');
       }
     }
+    if (dto.target === 'GROUP') {
+      if (!dto.groupId) throw new BadRequestException('Select a group to send this offer to.');
+      const group = await this.offerGroupsService.getById(dto.groupId);
+      if (!group.members.length) throw new BadRequestException('This group has no members yet.');
+    }
 
     const { message } = await this.offersService.prepareSend(id, dto.messageOverride);
     await this.offersQueue.add(
       'send-offer',
-      { campaignId: id, target: dto.target, message, clientIds: dto.clientIds, phoneNumbers },
+      { campaignId: id, target: dto.target, message, clientIds: dto.clientIds, phoneNumbers, groupId: dto.groupId },
       {
         jobId: `offer-send-${id}`,
         attempts: 3,
@@ -119,7 +126,7 @@ export class OffersController {
       action: 'OFFER_CAMPAIGN_QUEUED',
       targetType: 'Campaign',
       targetId: id,
-      metadata: { target: dto.target, clientCount: dto.clientIds?.length, phoneCount: phoneNumbers?.length },
+      metadata: { target: dto.target, clientCount: dto.clientIds?.length, phoneCount: phoneNumbers?.length, groupId: dto.groupId },
       ipAddress: req.ip,
     });
     return { queued: true };

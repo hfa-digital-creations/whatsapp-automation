@@ -13,7 +13,7 @@ import { batchPauseMs, humanSendDelayMs, sleep } from '../../common/utils/thrott
 import { resolveOfferMediaRule } from './offer-media.util';
 import { OfferPhoneRecipient } from './dto/send-offer.dto';
 
-export type OfferTarget = 'ALL_CLIENTS' | 'ACTIVE_CLIENTS' | 'SPECIFIC_CLIENTS' | 'PHONE_NUMBERS';
+export type OfferTarget = 'ALL_CLIENTS' | 'ACTIVE_CLIENTS' | 'SPECIFIC_CLIENTS' | 'PHONE_NUMBERS' | 'GROUP';
 export type OfferMediaType = 'IMAGE' | 'VIDEO' | 'DOCUMENT';
 
 /** Normalizes both client-based and manually-entered-phone-number targets into one shape the send loop can share. */
@@ -238,6 +238,7 @@ export class OffersService {
     message: string,
     clientIds?: string[],
     phoneNumbers?: OfferPhoneRecipient[],
+    groupId?: string,
   ) {
     const campaign = await this.campaignsService.getById(campaignId);
     const config = campaign.config as OfferCampaignConfig | null;
@@ -245,6 +246,18 @@ export class OffersService {
       config?.mediaUrl && config.mediaFileName
         ? { filePath: this.resolveMediaPath(config.mediaUrl), fileName: config.mediaFileName }
         : null;
+
+    // A group can mix registered clients and manually-entered phone numbers — resolve it
+    // once here into the same two lists the SPECIFIC_CLIENTS/PHONE_NUMBERS targets use.
+    let groupClientIds: string[] | undefined;
+    let groupPhoneNumbers: OfferPhoneRecipient[] | undefined;
+    if (target === 'GROUP' && groupId) {
+      const members = await this.prisma.offerGroupMember.findMany({ where: { groupId } });
+      groupClientIds = members.filter((m) => m.clientId).map((m) => m.clientId!);
+      groupPhoneNumbers = members
+        .filter((m) => !m.clientId && m.phone)
+        .map((m) => ({ phone: m.phone!, name: m.name ?? undefined }));
+    }
 
     const [clients, alreadySent] = await Promise.all([
       this.prisma.client.findMany({ where: { user: { status: UserStatus.ACTIVE } }, include: { user: true } }),
@@ -265,24 +278,29 @@ export class OffersService {
           })
         : target === 'SPECIFIC_CLIENTS'
           ? clients.filter((c) => (clientIds ?? []).includes(c.id))
-          : clients;
+          : target === 'GROUP'
+            ? clients.filter((c) => (groupClientIds ?? []).includes(c.id))
+            : target === 'PHONE_NUMBERS'
+              ? []
+              : clients;
 
-    const recipients: SendRecipient[] =
-      target === 'PHONE_NUMBERS'
-        ? (phoneNumbers ?? []).map((r) => ({
-            dedupKey: `phone:${normalizePhone(r.phone)}`,
-            name: r.name?.trim() || 'there',
-            phone: r.phone,
-            recipientPhone: r.phone,
-            recipientName: r.name?.trim() || undefined,
-          }))
-        : targetClients.map((c) => ({
-            dedupKey: `client:${c.id}`,
-            name: c.businessName,
-            phone: c.user.phone,
-            email: c.user.email,
-            clientId: c.id,
-          }));
+    const effectivePhoneNumbers = target === 'GROUP' ? groupPhoneNumbers : target === 'PHONE_NUMBERS' ? phoneNumbers : undefined;
+
+    const clientRecipients: SendRecipient[] = targetClients.map((c) => ({
+      dedupKey: `client:${c.id}`,
+      name: c.businessName,
+      phone: c.user.phone,
+      email: c.user.email,
+      clientId: c.id,
+    }));
+    const phoneRecipients: SendRecipient[] = (effectivePhoneNumbers ?? []).map((r) => ({
+      dedupKey: `phone:${normalizePhone(r.phone)}`,
+      name: r.name?.trim() || 'there',
+      phone: r.phone,
+      recipientPhone: r.phone,
+      recipientName: r.name?.trim() || undefined,
+    }));
+    const recipients: SendRecipient[] = [...clientRecipients, ...phoneRecipients];
 
     const pendingRecipients = recipients.filter((r) => !alreadySentKeys.has(r.dedupKey));
 

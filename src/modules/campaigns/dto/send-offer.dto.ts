@@ -6,8 +6,8 @@ export interface OfferPhoneRecipient {
 }
 
 export class SendOfferDto {
-  @IsIn(['ALL_CLIENTS', 'ACTIVE_CLIENTS', 'SPECIFIC_CLIENTS', 'PHONE_NUMBERS'])
-  target: 'ALL_CLIENTS' | 'ACTIVE_CLIENTS' | 'SPECIFIC_CLIENTS' | 'PHONE_NUMBERS';
+  @IsIn(['ALL_CLIENTS', 'ACTIVE_CLIENTS', 'SPECIFIC_CLIENTS', 'PHONE_NUMBERS', 'GROUP'])
+  target: 'ALL_CLIENTS' | 'ACTIVE_CLIENTS' | 'SPECIFIC_CLIENTS' | 'PHONE_NUMBERS' | 'GROUP';
 
   @IsOptional()
   @IsString()
@@ -25,4 +25,9 @@ export class SendOfferDto {
   @IsArray()
   @ArrayNotEmpty()
   phoneNumbers?: OfferPhoneRecipient[];
+
+  /** Required when target is GROUP — sends to every current member of this saved contact group. */
+  @IsOptional()
+  @IsString()
+  groupId?: string;
 }

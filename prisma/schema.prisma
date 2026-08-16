@@ -263,6 +263,7 @@ model Client {
   branding            ClientBranding?
   voucherUsages       VoucherUsage[]
   campaignMessages    CampaignMessage[]
+  offerGroupMembers   OfferGroupMember[]
 
   @@index([planId])
 }
@@ -640,6 +641,32 @@ model CampaignMessage {
   createdAt   DateTime @default(now())
 
   @@index([campaignId])
+}
+
+/// Reusable named contact list for offer campaigns — mixes registered clients and
+/// manually-entered phone numbers so an admin can build a group once and target it
+/// from multiple campaigns.
+model OfferGroup {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members OfferGroupMember[]
+}
+
+model OfferGroupMember {
+  id        String     @id @default(uuid())
+  groupId   String
+  group     OfferGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  clientId  String?
+  client    Client?    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// Set instead of clientId for a manually-entered contact who isn't a registered client.
+  phone     String?
+  name      String?
+  createdAt DateTime   @default(now())
+
+  @@index([groupId])
 }
 
 // ---------------------------------------------------------------------------

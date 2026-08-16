@@ -6,9 +6,11 @@ import { RenewalReminderService } from './renewal-reminder.service';
 import { RenewalReminderProcessor } from './renewal-reminder.processor';
 import { EnquiryMessageService } from './enquiry-message.service';
 import { OffersService } from './offers.service';
+import { OfferGroupsService } from './offer-groups.service';
 import { OfferSendProcessor } from './offer-send.processor';
 import { CampaignsController } from './campaigns.controller';
 import { OffersController } from './offers.controller';
+import { OfferGroupsController } from './offer-groups.controller';
 import { SubscriptionModule } from '../subscription/subscription.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
@@ -20,13 +22,14 @@ import { AuditLogModule } from '../audit-log/audit-log.module';
     NotificationsModule,
     AuditLogModule,
   ],
-  controllers: [CampaignsController, OffersController],
+  controllers: [CampaignsController, OffersController, OfferGroupsController],
   providers: [
     CampaignsService,
     RenewalReminderService,
     RenewalReminderProcessor,
     EnquiryMessageService,
     OffersService,
+    OfferGroupsService,
     OfferSendProcessor,
   ],
 })
