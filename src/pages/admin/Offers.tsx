@@ -157,6 +157,8 @@ function PhoneNumberEntry({
 /** Add-only variant of the client picker — checking a client adds them to the group immediately (via onAdd), already-added clients show checked and locked (remove via the members list instead). */
 function GroupMembersPanel({ groupId, onError }: { groupId: string; onError: (msg: string) => void }) {
   const queryClient = useQueryClient();
+  const vcfInputRef = useRef<HTMLInputElement>(null);
+  const [importResult, setImportResult] = useState('');
 
   const { data: group, isLoading } = useQuery<OfferGroupDetail>({
     queryKey: ['admin-offer-group', groupId],
@@ -199,6 +201,33 @@ function GroupMembersPanel({ groupId, onError }: { groupId: string; onError: (ms
     },
     onError: (err) => onError(apiErrorMessage(err)),
   });
+
+  const importVcfMutation = useMutation({
+    mutationFn: (file: File) => {
+      const body = new FormData();
+      body.append('file', file);
+      return api.post(`/admin/offer-groups/${groupId}/members/import-vcf`, body);
+    },
+    onSuccess: (res) => {
+      const { imported, skipped } = res.data.data;
+      setImportResult(`Imported ${imported} contact(s)${skipped > 0 ? `, skipped ${skipped} already in the group` : ''}.`);
+      onError('');
+      invalidate();
+      if (vcfInputRef.current) vcfInputRef.current.value = '';
+    },
+    onError: (err) => {
+      onError(apiErrorMessage(err));
+      if (vcfInputRef.current) vcfInputRef.current.value = '';
+    },
+  });
+
+  function handleVcfChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) {
+      setImportResult('');
+      importVcfMutation.mutate(file);
+    }
+  }
 
   if (isLoading) return <Spinner />;
   const memberClientIds = new Set((group?.members ?? []).filter((m) => m.clientId).map((m) => m.clientId));
@@ -261,6 +290,26 @@ function GroupMembersPanel({ groupId, onError }: { groupId: string; onError: (ms
       <div>
         <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Add Phone Number</label>
         <PhoneNumberEntry recipients={[]} onAdd={(r) => addPhoneMutation.mutate(r)} onRemove={() => {}} />
+      </div>
+
+      <div>
+        <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Import Contacts (.vcf)</label>
+        <div className="flex items-center gap-2.5">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => vcfInputRef.current?.click()}
+            disabled={importVcfMutation.isPending}
+            className="px-3 py-1.5 text-xs whitespace-nowrap"
+          >
+            {importVcfMutation.isPending ? 'Importing...' : '📇 Upload .vcf File'}
+          </Button>
+          {importResult && <p className="text-[11px] text-slate-500 dark:text-slate-400">{importResult}</p>}
+        </div>
+        <input ref={vcfInputRef} type="file" accept=".vcf,text/vcard" onChange={handleVcfChange} className="hidden" />
+        <p className="mt-1 text-[11px] text-slate-400">
+          Exported from your phone or Google/Apple/Outlook contacts. Contacts already in this group are skipped.
+        </p>
       </div>
     </div>
   );
