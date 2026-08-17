@@ -533,6 +533,96 @@ function TrashPanel({ onError }: { onError: (msg: string) => void }) {
   );
 }
 
+/** Top-level "Import .vcf" entry point next to "+ New Campaign" — pick or create a group right
+ * here instead of first navigating into Contacts, then drilling into that specific group's card. */
+function QuickVcfImportPanel({ groups, onImported, onError, onClose }: { groups: OfferGroup[]; onImported: () => void; onError: (msg: string) => void; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [groupChoice, setGroupChoice] = useState('');
+  const [newGroupName, setNewGroupName] = useState('');
+  const [result, setResult] = useState('');
+
+  const createGroupMutation = useMutation({
+    mutationFn: () => api.post('/client/offer-groups', { name: newGroupName }),
+  });
+
+  const importMutation = useMutation({
+    mutationFn: async (file: File) => {
+      let groupId = groupChoice;
+      if (!groupId) {
+        const created = await createGroupMutation.mutateAsync();
+        groupId = created.data.data.id;
+      }
+      const body = new FormData();
+      body.append('file', file);
+      const res = await api.post(`/client/offer-groups/${groupId}/members/import-vcf`, body);
+      return res.data.data;
+    },
+    onSuccess: ({ imported, skipped }) => {
+      setResult(`Imported ${imported} contact(s)${skipped > 0 ? `, skipped ${skipped} already in the group` : ''}.`);
+      onError('');
+      queryClient.invalidateQueries({ queryKey: ['client-offer-groups'] });
+      onImported();
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    },
+    onError: (err) => {
+      onError(apiErrorMessage(err));
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    },
+  });
+
+  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) {
+      setResult('');
+      importMutation.mutate(file);
+    }
+  }
+
+  const canImport = groupChoice || newGroupName.trim();
+
+  return (
+    <Card className="p-5 animate-tab-content space-y-3">
+      <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+        <span className="h-2 w-2 rounded-full bg-brand-500" />
+        Import Customers (.vcf)
+      </h2>
+      <div className="flex flex-wrap items-center gap-2.5">
+        <Select
+          value={groupChoice}
+          onChange={(e) => { setGroupChoice(e.target.value); setNewGroupName(''); }}
+          className="text-xs"
+        >
+          <option value="">+ Create a new group...</option>
+          {groups.map((g) => (
+            <option key={g.id} value={g.id}>{g.name} ({g._count.members})</option>
+          ))}
+        </Select>
+        {!groupChoice && (
+          <Input
+            placeholder="New group name, e.g. Loyal Customers"
+            value={newGroupName}
+            onChange={(e) => setNewGroupName(e.target.value)}
+            className="flex-1 min-w-[160px] text-xs"
+          />
+        )}
+        <Button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={!canImport || importMutation.isPending}
+          className="px-3 py-1.5 text-xs whitespace-nowrap"
+        >
+          {importMutation.isPending ? 'Importing...' : '📇 Choose .vcf File'}
+        </Button>
+        <Button type="button" variant="ghost" className="px-2.5 py-1.5 text-xs" onClick={onClose}>Close</Button>
+      </div>
+      <input ref={fileInputRef} type="file" accept=".vcf,text/vcard" onChange={handleFileChange} className="hidden" />
+      {result && <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">{result} See the Contacts tab below.</p>}
+      <p className="text-[11px] text-slate-400">Exported from your phone or Google/Apple/Outlook contacts.</p>
+    </Card>
+  );
+}
+
 function CampaignMedia({ config }: { config: Campaign['config'] }) {
   if (!config?.mediaUrl) return null;
   if (config.mediaType === 'IMAGE') {
@@ -571,6 +661,7 @@ export default function ClientOffers() {
   const [result, setResult] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'ACTIVE' | 'COMPLETED' | 'CONTACTS' | 'TRASH'>('ALL');
   const [showCreate, setShowCreate] = useState(false);
+  const [showQuickImport, setShowQuickImport] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const { data: features } = useQuery<Record<string, boolean>>({
@@ -802,11 +893,23 @@ export default function ClientOffers() {
           </p>
         </div>
         <div className="flex items-center gap-2.5">
+          <Button variant="secondary" onClick={() => setShowQuickImport((s) => !s)} className="text-xs">
+            {showQuickImport ? 'Close Import' : '📇 Import .vcf'}
+          </Button>
           <Button onClick={() => (showCreate ? resetCreateForm() : setShowCreate(true))} className="text-xs">
             {showCreate ? 'Close Campaign Form' : '+ New Campaign'}
           </Button>
         </div>
       </div>
+
+      {showQuickImport && (
+        <QuickVcfImportPanel
+          groups={offerGroups ?? []}
+          onError={setError}
+          onImported={() => setActiveFilter('CONTACTS')}
+          onClose={() => setShowQuickImport(false)}
+        />
+      )}
 
       {showCreate && (
         <Card className="p-6 animate-tab-content">
