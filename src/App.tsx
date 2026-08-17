@@ -32,6 +32,7 @@ import ClientWhatsapp from './pages/client/WhatsappAccounts';
 import ClientTraining from './pages/client/Training';
 import ClientConversations from './pages/client/Conversations';
 import ClientContacts from './pages/client/Contacts';
+import ClientOffers from './pages/client/Offers';
 import ClientTrash from './pages/client/Trash';
 import ClientQuotations from './pages/client/Quotations';
 import ClientSettings from './pages/client/Settings';
@@ -99,6 +100,7 @@ export default function App() {
           <Route path="training" element={<ClientTraining />} />
           <Route path="conversations" element={<ClientConversations />} />
           <Route path="contacts" element={<ClientContacts />} />
+          <Route path="offers" element={<ClientOffers />} />
           <Route path="trash" element={<ClientTrash />} />
           <Route path="quotations" element={<ClientQuotations />} />
           <Route path="settings" element={<ClientSettings />} />

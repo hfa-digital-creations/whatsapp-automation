@@ -14,13 +14,8 @@ interface Campaign {
 }
 
 interface CampaignMessage {
-  id: string; status: string; clientId: string | null;
-}
-
-interface ClientOption {
   id: string;
-  businessName: string;
-  user: { email: string };
+  status: string;
 }
 
 interface PhoneRecipient {
@@ -36,14 +31,20 @@ interface OfferGroup {
 
 interface OfferGroupMember {
   id: string;
-  clientId: string | null;
   phone: string | null;
   name: string | null;
-  client: { id: string; businessName: string; user: { email: string; phone: string | null } } | null;
 }
 
 interface OfferGroupDetail extends OfferGroup {
   members: OfferGroupMember[];
+}
+
+interface WhatsappAccount {
+  id: string;
+  sessionId: string;
+  displayName: string | null;
+  phoneNumber: string | null;
+  status: string;
 }
 
 const STATUS_TONE: Record<string, 'gray' | 'green' | 'amber' | 'blue'> = {
@@ -52,16 +53,10 @@ const STATUS_TONE: Record<string, 'gray' | 'green' | 'amber' | 'blue'> = {
 
 const MEDIA_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/3gpp,application/pdf';
 
-/**
- * Sending now runs as a background job (batches of 5 with multi-minute pauses to stay
- * safe from WhatsApp's automated-behavior detection), so a RUNNING campaign can take
- * several minutes to finish — this polls the recorded messages so the admin sees live
- * progress instead of a single delayed result.
- */
 function CampaignProgress({ campaignId }: { campaignId: string }) {
   const { data: messages } = useQuery<CampaignMessage[]>({
-    queryKey: ['admin-offer-messages', campaignId],
-    queryFn: async () => (await api.get(`/admin/offers/${campaignId}/messages`)).data.data,
+    queryKey: ['client-offer-messages', campaignId],
+    queryFn: async () => (await api.get(`/client/offers/${campaignId}/messages`)).data.data,
     refetchInterval: 5000,
   });
   const sent = messages?.filter((m) => m.status === 'SENT').length ?? 0;
@@ -70,29 +65,6 @@ function CampaignProgress({ campaignId }: { campaignId: string }) {
     <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">
       Sending in background — {sent} sent{failed > 0 ? `, ${failed} failed` : ''} so far...
     </p>
-  );
-}
-
-function ClientPicker({
-  clients,
-  selected,
-  onToggle,
-}: {
-  clients: ClientOption[];
-  selected: string[];
-  onToggle: (clientId: string) => void;
-}) {
-  return (
-    <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg border border-slate-200/60 bg-white/40 p-2 dark:border-white/10 dark:bg-white/[0.02]">
-      {clients.length === 0 && <p className="p-1 text-xs text-slate-400">No clients found.</p>}
-      {clients.map((client) => (
-        <label key={client.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-xs hover:bg-slate-500/5">
-          <input type="checkbox" checked={selected.includes(client.id)} onChange={() => onToggle(client.id)} className="accent-brand-500" />
-          <span className="text-slate-700 dark:text-slate-200">{client.businessName}</span>
-          <span className="truncate text-slate-400">{client.user.email}</span>
-        </label>
-      ))}
-    </div>
   );
 }
 
@@ -120,7 +92,7 @@ function PhoneNumberEntry({
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <Input
-          placeholder="Phone number (e.g. 919876543210)"
+          placeholder="Customer phone (e.g. 919876543210)"
           value={phone}
           onChange={(e) => setPhone(e.target.value)}
           className="flex-1 min-w-[160px] text-xs"
@@ -154,21 +126,38 @@ function PhoneNumberEntry({
   );
 }
 
-/** Inline AI-draft + send-now compose for a single contact — no campaign, no history, just an immediate one-off message. */
-function FollowupComposer({ phone, name, onDone }: { phone: string; name?: string; onDone: () => void }) {
+/** Which of the client's own connected WhatsApp accounts to send from — required for every send/follow-up. */
+function SessionPicker({ accounts, value, onChange }: { accounts: WhatsappAccount[]; value: string; onChange: (v: string) => void }) {
+  const connected = accounts.filter((a) => a.status === 'CONNECTED');
+  if (!connected.length) {
+    return <p className="text-[11px] text-rose-500">Connect a WhatsApp account first — see the WhatsApp Accounts page.</p>;
+  }
+  return (
+    <Select value={value} onChange={(e) => onChange(e.target.value)} className="text-xs">
+      <option value="">Send from...</option>
+      {connected.map((a) => (
+        <option key={a.sessionId} value={a.sessionId}>
+          {a.displayName || a.phoneNumber || a.sessionId}
+        </option>
+      ))}
+    </Select>
+  );
+}
+
+function FollowupComposer({ phone, name, sessionId, onDone }: { phone: string; name?: string; sessionId: string; onDone: () => void }) {
   const [message, setMessage] = useState('');
   const [prompt, setPrompt] = useState('');
   const [error, setError] = useState('');
   const [sent, setSent] = useState(false);
 
   const generateMutation = useMutation({
-    mutationFn: () => api.post('/admin/offers/generate-message', { prompt: prompt || `A short, friendly follow-up message${name ? ` to ${name}` : ''}.` }),
+    mutationFn: () => api.post('/client/offers/generate-message', { prompt: prompt || `A short, friendly follow-up message${name ? ` to ${name}` : ''}.` }),
     onSuccess: (res) => setMessage(res.data.data.message),
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
   const sendMutation = useMutation({
-    mutationFn: () => api.post('/admin/offers/followup', { phone, name, message }),
+    mutationFn: () => api.post('/client/offers/followup', { phone, name, message, sessionId }),
     onSuccess: () => setSent(true),
     onError: (err) => setError(apiErrorMessage(err)),
   });
@@ -202,52 +191,32 @@ function FollowupComposer({ phone, name, onDone }: { phone: string; name?: strin
   );
 }
 
-/** Add-only variant of the client picker — checking a client adds them to the group immediately (via onAdd), already-added clients show checked and locked (remove via the members list instead). */
-function GroupMembersPanel({ groupId, onError }: { groupId: string; onError: (msg: string) => void }) {
+function GroupMembersPanel({ groupId, accounts, onError }: { groupId: string; accounts: WhatsappAccount[]; onError: (msg: string) => void }) {
   const queryClient = useQueryClient();
   const vcfInputRef = useRef<HTMLInputElement>(null);
   const [importResult, setImportResult] = useState('');
   const [followupFor, setFollowupFor] = useState<string | null>(null);
+  const [followupSession, setFollowupSession] = useState('');
 
   const { data: group, isLoading } = useQuery<OfferGroupDetail>({
-    queryKey: ['admin-offer-group', groupId],
-    queryFn: async () => (await api.get(`/admin/offer-groups/${groupId}`)).data.data,
-  });
-
-  const { data: clientOptions } = useQuery<ClientOption[]>({
-    queryKey: ['admin-offer-client-options'],
-    queryFn: async () => (await api.get('/admin/clients', { params: { take: 500 } })).data.data.items,
+    queryKey: ['client-offer-group', groupId],
+    queryFn: async () => (await api.get(`/client/offer-groups/${groupId}`)).data.data,
   });
 
   function invalidate() {
-    queryClient.invalidateQueries({ queryKey: ['admin-offer-group', groupId] });
-    queryClient.invalidateQueries({ queryKey: ['admin-offer-groups'] });
+    queryClient.invalidateQueries({ queryKey: ['client-offer-group', groupId] });
+    queryClient.invalidateQueries({ queryKey: ['client-offer-groups'] });
   }
 
-  const addClientMutation = useMutation({
-    mutationFn: (clientId: string) => api.post(`/admin/offer-groups/${groupId}/members`, { clientId }),
-    onSuccess: () => {
-      onError('');
-      invalidate();
-    },
-    onError: (err) => onError(apiErrorMessage(err)),
-  });
-
   const addPhoneMutation = useMutation({
-    mutationFn: (r: PhoneRecipient) => api.post(`/admin/offer-groups/${groupId}/members`, { phone: r.phone, name: r.name }),
-    onSuccess: () => {
-      onError('');
-      invalidate();
-    },
+    mutationFn: (r: PhoneRecipient) => api.post(`/client/offer-groups/${groupId}/members`, { phone: r.phone, name: r.name }),
+    onSuccess: () => { onError(''); invalidate(); },
     onError: (err) => onError(apiErrorMessage(err)),
   });
 
   const removeMemberMutation = useMutation({
-    mutationFn: (memberId: string) => api.delete(`/admin/offer-groups/${groupId}/members/${memberId}`),
-    onSuccess: () => {
-      onError('');
-      invalidate();
-    },
+    mutationFn: (memberId: string) => api.delete(`/client/offer-groups/${groupId}/members/${memberId}`),
+    onSuccess: () => { onError(''); invalidate(); },
     onError: (err) => onError(apiErrorMessage(err)),
   });
 
@@ -255,7 +224,7 @@ function GroupMembersPanel({ groupId, onError }: { groupId: string; onError: (ms
     mutationFn: (file: File) => {
       const body = new FormData();
       body.append('file', file);
-      return api.post(`/admin/offer-groups/${groupId}/members/import-vcf`, body);
+      return api.post(`/client/offer-groups/${groupId}/members/import-vcf`, body);
     },
     onSuccess: (res) => {
       const { imported, skipped } = res.data.data;
@@ -279,13 +248,11 @@ function GroupMembersPanel({ groupId, onError }: { groupId: string; onError: (ms
   }
 
   if (isLoading) return <Spinner />;
-  const memberClientIds = new Set((group?.members ?? []).filter((m) => m.clientId).map((m) => m.clientId));
 
   return (
     <div className="space-y-3">
-      {/* Import is the first thing here — no need to dig for it. */}
       <div className="rounded-lg border border-brand-500/20 bg-brand-500/5 p-2.5">
-        <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">📇 Import Contacts (.vcf)</label>
+        <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">📇 Import Customers (.vcf)</label>
         <div className="flex items-center gap-2.5">
           <Button
             type="button"
@@ -309,98 +276,73 @@ function GroupMembersPanel({ groupId, onError }: { groupId: string; onError: (ms
         </label>
         <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg border border-slate-200/60 bg-white/40 p-2 dark:border-white/10 dark:bg-white/[0.02]">
           {(group?.members.length ?? 0) === 0 && <p className="p-1 text-xs text-slate-400">No members yet.</p>}
-          {group?.members.map((m) => {
-            const phone = m.client ? m.client.user.phone : m.phone;
-            const name = m.client ? m.client.businessName : m.name ?? undefined;
-            return (
-              <div key={m.id} className="rounded-md px-1.5 py-1 text-xs">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-slate-700 dark:text-slate-200">
-                    {m.client ? (
-                      <>
-                        {m.client.businessName} <span className="text-slate-400">— {m.client.user.email}</span>
-                      </>
-                    ) : (
-                      <>
-                        {m.name ? `${m.name} — ` : ''}
-                        <span className="font-mono text-slate-400">{m.phone}</span>
-                      </>
-                    )}
-                  </span>
-                  <div className="flex shrink-0 items-center gap-2">
-                    {phone && (
-                      <button
-                        type="button"
-                        onClick={() => setFollowupFor((id) => (id === m.id ? null : m.id))}
-                        className="text-[11px] font-semibold text-brand-600 hover:underline dark:text-brand-400"
-                      >
-                        Follow-up
-                      </button>
-                    )}
+          {group?.members.map((m) => (
+            <div key={m.id} className="rounded-md px-1.5 py-1 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-slate-700 dark:text-slate-200">
+                  {m.name ? `${m.name} — ` : ''}
+                  <span className="font-mono text-slate-400">{m.phone}</span>
+                </span>
+                <div className="flex shrink-0 items-center gap-2">
+                  {m.phone && (
                     <button
                       type="button"
-                      onClick={() => removeMemberMutation.mutate(m.id)}
-                      className="text-slate-400 hover:text-red-500"
-                      aria-label="Remove"
+                      onClick={() => { setFollowupFor((id) => (id === m.id ? null : m.id)); setFollowupSession(''); }}
+                      className="text-[11px] font-semibold text-brand-600 hover:underline dark:text-brand-400"
                     >
-                      ✕
+                      Follow-up
                     </button>
-                  </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removeMemberMutation.mutate(m.id)}
+                    className="text-slate-400 hover:text-red-500"
+                    aria-label="Remove"
+                  >
+                    ✕
+                  </button>
                 </div>
-                {followupFor === m.id && phone && (
-                  <div className="mt-1.5">
-                    <FollowupComposer phone={phone} name={name} onDone={() => setFollowupFor(null)} />
-                  </div>
-                )}
               </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div>
-        <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Add Phone Number</label>
-        <PhoneNumberEntry recipients={[]} onAdd={(r) => addPhoneMutation.mutate(r)} onRemove={() => {}} />
-      </div>
-
-      <div>
-        <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Add Clients</label>
-        <div className="max-h-32 space-y-1 overflow-y-auto rounded-lg border border-slate-200/60 bg-white/40 p-2 dark:border-white/10 dark:bg-white/[0.02]">
-          {(clientOptions?.length ?? 0) === 0 && <p className="p-1 text-xs text-slate-400">No clients found.</p>}
-          {clientOptions?.map((c) => (
-            <label key={c.id} className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-xs hover:bg-slate-500/5">
-              <input
-                type="checkbox"
-                checked={memberClientIds.has(c.id)}
-                disabled={memberClientIds.has(c.id) || addClientMutation.isPending}
-                onChange={() => addClientMutation.mutate(c.id)}
-                className="accent-brand-500"
-              />
-              <span className="text-slate-700 dark:text-slate-200">{c.businessName}</span>
-              <span className="truncate text-slate-400">{c.user.email}</span>
-            </label>
+              {followupFor === m.id && m.phone && (
+                <div className="mt-1.5 space-y-1.5">
+                  <SessionPicker accounts={accounts} value={followupSession} onChange={setFollowupSession} />
+                  {followupSession && (
+                    <FollowupComposer
+                      phone={m.phone}
+                      name={m.name ?? undefined}
+                      sessionId={followupSession}
+                      onDone={() => setFollowupFor(null)}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
           ))}
         </div>
+      </div>
+
+      <div>
+        <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Add Customer Phone Number</label>
+        <PhoneNumberEntry recipients={[]} onAdd={(r) => addPhoneMutation.mutate(r)} onRemove={() => {}} />
       </div>
     </div>
   );
 }
 
-/** Named, reusable contact lists mixing registered clients and manual phone numbers, targetable from any campaign. */
-function GroupsPanel({ onError }: { onError: (msg: string) => void }) {
+function GroupsPanel({ accounts, onError }: { accounts: WhatsappAccount[]; onError: (msg: string) => void }) {
   const queryClient = useQueryClient();
   const [newGroupName, setNewGroupName] = useState('');
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
 
   const { data: groups, isLoading } = useQuery<OfferGroup[]>({
-    queryKey: ['admin-offer-groups'],
-    queryFn: async () => (await api.get('/admin/offer-groups')).data.data,
+    queryKey: ['client-offer-groups'],
+    queryFn: async () => (await api.get('/client/offer-groups')).data.data,
   });
 
   const createMutation = useMutation({
-    mutationFn: () => api.post('/admin/offer-groups', { name: newGroupName }),
+    mutationFn: () => api.post('/client/offer-groups', { name: newGroupName }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-offer-groups'] });
+      queryClient.invalidateQueries({ queryKey: ['client-offer-groups'] });
       setNewGroupName('');
       onError('');
     },
@@ -408,9 +350,9 @@ function GroupsPanel({ onError }: { onError: (msg: string) => void }) {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/admin/offer-groups/${id}`),
+    mutationFn: (id: string) => api.delete(`/client/offer-groups/${id}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-offer-groups'] });
+      queryClient.invalidateQueries({ queryKey: ['client-offer-groups'] });
       onError('');
     },
     onError: (err) => onError(apiErrorMessage(err)),
@@ -418,14 +360,14 @@ function GroupsPanel({ onError }: { onError: (msg: string) => void }) {
 
   const exportMutation = useMutation({
     mutationFn: async ({ id, format }: { id: string; format: 'vcf' | 'csv' }) => {
-      const res = await api.get(`/admin/offer-groups/${id}/export`, { params: { format }, responseType: 'blob' });
+      const res = await api.get(`/client/offer-groups/${id}/export`, { params: { format }, responseType: 'blob' });
       return { blob: res.data as Blob, format };
     },
     onSuccess: ({ blob, format }) => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `group-contacts-export.${format}`;
+      a.download = `customer-contacts-export.${format}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -438,15 +380,15 @@ function GroupsPanel({ onError }: { onError: (msg: string) => void }) {
     <Card className="p-6 animate-tab-content space-y-4">
       <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
         <span className="h-2 w-2 rounded-full bg-brand-500" />
-        Contact Groups
+        Customer Contact Groups
       </h2>
       <p className="text-xs text-slate-500 dark:text-slate-400">
-        Build a named list once, mixing registered clients and manual phone numbers, then target it from any campaign.
+        Build a named list of your own customers once, then target it from any campaign.
       </p>
 
       <div className="flex items-center gap-2">
         <Input
-          placeholder="Group name, e.g. VIP Clients"
+          placeholder="Group name, e.g. Loyal Customers"
           value={newGroupName}
           onChange={(e) => setNewGroupName(e.target.value)}
           className="text-xs"
@@ -473,10 +415,7 @@ function GroupsPanel({ onError }: { onError: (msg: string) => void }) {
                   <p className="text-[11px] text-slate-400">{g._count.members} member(s)</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    className="px-2.5 py-1 text-xs"
-                    onClick={() => setExpandedGroupId(g.id)}
-                  >
+                  <Button className="px-2.5 py-1 text-xs" onClick={() => setExpandedGroupId(g.id)}>
                     📇 Import .vcf
                   </Button>
                   <Button
@@ -509,7 +448,7 @@ function GroupsPanel({ onError }: { onError: (msg: string) => void }) {
               </div>
               {expandedGroupId === g.id && (
                 <div className="mt-3 border-t border-slate-100 pt-3 dark:border-white/5">
-                  <GroupMembersPanel groupId={g.id} onError={onError} />
+                  <GroupMembersPanel groupId={g.id} accounts={accounts} onError={onError} />
                 </div>
               )}
             </div>
@@ -525,37 +464,29 @@ interface TrashedCampaign extends Campaign {
   deletedAt: string;
 }
 
-/** Trashed campaigns stay recoverable until permanently deleted — mirrors the client-side conversation trash pattern. */
 function TrashPanel({ onError }: { onError: (msg: string) => void }) {
   const queryClient = useQueryClient();
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const { data: trashed, isLoading } = useQuery<TrashedCampaign[]>({
-    queryKey: ['admin-offers-trash'],
-    queryFn: async () => (await api.get('/admin/offers/trash')).data.data,
+    queryKey: ['client-offers-trash'],
+    queryFn: async () => (await api.get('/client/offers/trash')).data.data,
   });
 
   function invalidateAll() {
-    queryClient.invalidateQueries({ queryKey: ['admin-offers-trash'] });
-    queryClient.invalidateQueries({ queryKey: ['admin-offers'] });
+    queryClient.invalidateQueries({ queryKey: ['client-offers-trash'] });
+    queryClient.invalidateQueries({ queryKey: ['client-offers'] });
   }
 
   const restoreMutation = useMutation({
-    mutationFn: (id: string) => api.post(`/admin/offers/${id}/restore`),
-    onSuccess: () => {
-      onError('');
-      invalidateAll();
-    },
+    mutationFn: (id: string) => api.post(`/client/offers/${id}/restore`),
+    onSuccess: () => { onError(''); invalidateAll(); },
     onError: (err) => onError(apiErrorMessage(err)),
   });
 
   const permanentDeleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/admin/offers/${id}/permanent`),
-    onSuccess: () => {
-      onError('');
-      setConfirmDeleteId(null);
-      invalidateAll();
-    },
+    mutationFn: (id: string) => api.delete(`/client/offers/${id}/permanent`),
+    onSuccess: () => { onError(''); setConfirmDeleteId(null); invalidateAll(); },
     onError: (err) => onError(apiErrorMessage(err)),
   });
 
@@ -577,22 +508,12 @@ function TrashPanel({ onError }: { onError: (msg: string) => void }) {
           </div>
 
           <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-3 dark:border-white/5">
-            <Button
-              variant="secondary"
-              className="px-3 py-1.5 text-xs"
-              disabled={restoreMutation.isPending}
-              onClick={() => restoreMutation.mutate(c.id)}
-            >
+            <Button variant="secondary" className="px-3 py-1.5 text-xs" disabled={restoreMutation.isPending} onClick={() => restoreMutation.mutate(c.id)}>
               Restore
             </Button>
             {confirmDeleteId === c.id ? (
               <>
-                <Button
-                  variant="danger"
-                  className="px-3 py-1.5 text-xs"
-                  disabled={permanentDeleteMutation.isPending}
-                  onClick={() => permanentDeleteMutation.mutate(c.id)}
-                >
+                <Button variant="danger" className="px-3 py-1.5 text-xs" disabled={permanentDeleteMutation.isPending} onClick={() => permanentDeleteMutation.mutate(c.id)}>
                   {permanentDeleteMutation.isPending ? 'Deleting...' : 'Confirm Permanent Delete'}
                 </Button>
                 <Button variant="secondary" className="px-2.5 py-1.5 text-xs" onClick={() => setConfirmDeleteId(null)}>
@@ -600,20 +521,14 @@ function TrashPanel({ onError }: { onError: (msg: string) => void }) {
                 </Button>
               </>
             ) : (
-              <Button
-                variant="ghost"
-                className="px-2.5 py-1.5 text-xs text-rose-500 hover:text-rose-600"
-                onClick={() => setConfirmDeleteId(c.id)}
-              >
+              <Button variant="ghost" className="px-2.5 py-1.5 text-xs text-rose-500 hover:text-rose-600" onClick={() => setConfirmDeleteId(c.id)}>
                 Delete Forever
               </Button>
             )}
           </div>
         </Card>
       ))}
-      {trashed?.length === 0 && (
-        <div className="col-span-full py-12 text-center text-sm text-slate-400">Trash is empty.</div>
-      )}
+      {trashed?.length === 0 && <div className="col-span-full py-12 text-center text-sm text-slate-400">Trash is empty.</div>}
     </div>
   );
 }
@@ -638,54 +553,63 @@ function CampaignMedia({ config }: { config: Campaign['config'] }) {
   );
 }
 
-export default function AdminOffers() {
+export default function ClientOffers() {
   const queryClient = useQueryClient();
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState({ name: '', message: '', mediaUrl: '', mediaType: '' as OfferMediaType | '', mediaFileName: '' });
   const [aiPrompt, setAiPrompt] = useState('');
-  const [createTarget, setCreateTarget] = useState('ACTIVE_CLIENTS');
-  const [createSelectedClients, setCreateSelectedClients] = useState<string[]>([]);
+  const [createTarget, setCreateTarget] = useState<'PHONE_NUMBERS' | 'GROUP'>('PHONE_NUMBERS');
   const [createPhoneRecipients, setCreatePhoneRecipients] = useState<PhoneRecipient[]>([]);
+  const [createGroupId, setCreateGroupId] = useState('');
+  const [createSessionId, setCreateSessionId] = useState('');
   const [pendingAction, setPendingAction] = useState<'draft' | 'send'>('draft');
-  const [target, setTarget] = useState<Record<string, string>>({});
-  const [selectedClients, setSelectedClients] = useState<Record<string, string[]>>({});
+  const [target, setTarget] = useState<Record<string, 'PHONE_NUMBERS' | 'GROUP'>>({});
   const [phoneRecipients, setPhoneRecipients] = useState<Record<string, PhoneRecipient[]>>({});
+  const [groupId, setGroupId] = useState<Record<string, string>>({});
+  const [sessionId, setSessionId] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [result, setResult] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'ACTIVE' | 'COMPLETED' | 'CONTACTS' | 'TRASH'>('ALL');
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [createGroupId, setCreateGroupId] = useState('');
-  const [groupId, setGroupId] = useState<Record<string, string>>({});
 
-  const { data: campaigns, isLoading } = useQuery<Campaign[]>({
-    queryKey: ['admin-offers'],
-    queryFn: async () => (await api.get('/admin/offers')).data.data,
-    refetchInterval: (query) => (query.state.data?.some((c) => c.status === 'RUNNING') ? 5000 : false),
+  const { data: features } = useQuery<Record<string, boolean>>({
+    queryKey: ['client-features'],
+    queryFn: async () => (await api.get('/client/features')).data.data,
   });
 
-  const { data: clientOptions } = useQuery<ClientOption[]>({
-    queryKey: ['admin-offer-client-options'],
-    queryFn: async () => (await api.get('/admin/clients', { params: { take: 500 } })).data.data.items,
+  const { data: campaigns, isLoading } = useQuery<Campaign[]>({
+    queryKey: ['client-offers'],
+    queryFn: async () => (await api.get('/client/offers')).data.data,
+    refetchInterval: (query) => (query.state.data?.some((c) => c.status === 'RUNNING') ? 5000 : false),
+    enabled: features?.OFFER_MESSAGES === true,
+  });
+
+  const { data: accounts } = useQuery<WhatsappAccount[]>({
+    queryKey: ['client-whatsapp-accounts'],
+    queryFn: async () => (await api.get('/client/whatsapp/accounts')).data.data,
+    enabled: features?.OFFER_MESSAGES === true,
   });
 
   const { data: trashedCampaigns } = useQuery<TrashedCampaign[]>({
-    queryKey: ['admin-offers-trash'],
-    queryFn: async () => (await api.get('/admin/offers/trash')).data.data,
+    queryKey: ['client-offers-trash'],
+    queryFn: async () => (await api.get('/client/offers/trash')).data.data,
+    enabled: features?.OFFER_MESSAGES === true,
   });
 
   const { data: offerGroups } = useQuery<OfferGroup[]>({
-    queryKey: ['admin-offer-groups'],
-    queryFn: async () => (await api.get('/admin/offer-groups')).data.data,
+    queryKey: ['client-offer-groups'],
+    queryFn: async () => (await api.get('/client/offer-groups')).data.data,
+    enabled: features?.OFFER_MESSAGES === true,
   });
 
   function resetCreateForm() {
     setForm({ name: '', message: '', mediaUrl: '', mediaType: '', mediaFileName: '' });
     setAiPrompt('');
-    setCreateTarget('ACTIVE_CLIENTS');
-    setCreateSelectedClients([]);
+    setCreateTarget('PHONE_NUMBERS');
     setCreatePhoneRecipients([]);
     setCreateGroupId('');
+    setCreateSessionId('');
     setEditingId(null);
     setShowCreate(false);
   }
@@ -706,7 +630,7 @@ export default function AdminOffers() {
 
   const createMutation = useMutation({
     mutationFn: () =>
-      api.post('/admin/offers', {
+      api.post('/client/offers', {
         name: form.name,
         message: form.message,
         mediaUrl: form.mediaUrl || undefined,
@@ -714,7 +638,7 @@ export default function AdminOffers() {
         mediaFileName: form.mediaFileName || undefined,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-offers'] });
+      queryClient.invalidateQueries({ queryKey: ['client-offers'] });
       resetCreateForm();
     },
     onError: (err) => setError(apiErrorMessage(err)),
@@ -722,7 +646,7 @@ export default function AdminOffers() {
 
   const updateMutation = useMutation({
     mutationFn: () =>
-      api.patch(`/admin/offers/${editingId}`, {
+      api.patch(`/client/offers/${editingId}`, {
         name: form.name,
         message: form.message,
         mediaUrl: form.mediaUrl || null,
@@ -730,16 +654,15 @@ export default function AdminOffers() {
         mediaFileName: form.mediaFileName || null,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-offers'] });
+      queryClient.invalidateQueries({ queryKey: ['client-offers'] });
       resetCreateForm();
     },
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
-  /** Creates the campaign and immediately queues it to the chosen clients in one step. */
   const createAndSendMutation = useMutation({
     mutationFn: async () => {
-      const createRes = await api.post('/admin/offers', {
+      const createRes = await api.post('/client/offers', {
         name: form.name,
         message: form.message,
         mediaUrl: form.mediaUrl || undefined,
@@ -747,15 +670,15 @@ export default function AdminOffers() {
         mediaFileName: form.mediaFileName || undefined,
       });
       const newId = createRes.data.data.id;
-      await api.post(`/admin/offers/${newId}/send`, {
+      await api.post(`/client/offers/${newId}/send`, {
         target: createTarget,
-        clientIds: createTarget === 'SPECIFIC_CLIENTS' ? createSelectedClients : undefined,
         phoneNumbers: createTarget === 'PHONE_NUMBERS' ? createPhoneRecipients : undefined,
         groupId: createTarget === 'GROUP' ? createGroupId : undefined,
+        sessionId: createSessionId,
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-offers'] });
+      queryClient.invalidateQueries({ queryKey: ['client-offers'] });
       resetCreateForm();
       setResult('Broadcast created and queued — sending in small batches with safety pauses in the background. Progress shows on the campaign card below.');
       setError('');
@@ -767,7 +690,7 @@ export default function AdminOffers() {
     mutationFn: (file: File) => {
       const body = new FormData();
       body.append('file', file);
-      return api.post('/admin/offers/media', body);
+      return api.post('/client/offers/media', body);
     },
     onSuccess: (res) => {
       const { mediaUrl, mediaType, mediaFileName } = res.data.data;
@@ -781,7 +704,7 @@ export default function AdminOffers() {
   });
 
   const generateTextMutation = useMutation({
-    mutationFn: () => api.post('/admin/offers/generate-message', { prompt: aiPrompt }),
+    mutationFn: () => api.post('/client/offers/generate-message', { prompt: aiPrompt }),
     onSuccess: (res) => {
       setForm((f) => ({ ...f, message: res.data.data.message }));
       setError('');
@@ -791,16 +714,16 @@ export default function AdminOffers() {
 
   const sendMutation = useMutation({
     mutationFn: (id: string) => {
-      const chosenTarget = target[id] ?? 'ACTIVE_CLIENTS';
-      return api.post(`/admin/offers/${id}/send`, {
+      const chosenTarget = target[id] ?? 'PHONE_NUMBERS';
+      return api.post(`/client/offers/${id}/send`, {
         target: chosenTarget,
-        clientIds: chosenTarget === 'SPECIFIC_CLIENTS' ? selectedClients[id] ?? [] : undefined,
         phoneNumbers: chosenTarget === 'PHONE_NUMBERS' ? phoneRecipients[id] ?? [] : undefined,
         groupId: chosenTarget === 'GROUP' ? groupId[id] : undefined,
+        sessionId: sessionId[id],
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-offers'] });
+      queryClient.invalidateQueries({ queryKey: ['client-offers'] });
       setResult('Broadcast queued — sending in small batches with safety pauses in the background. Progress shows on the campaign card below.');
       setError('');
     },
@@ -808,26 +731,14 @@ export default function AdminOffers() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/admin/offers/${id}`),
+    mutationFn: (id: string) => api.delete(`/client/offers/${id}`),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin-offers'] });
-      queryClient.invalidateQueries({ queryKey: ['admin-offers-trash'] });
+      queryClient.invalidateQueries({ queryKey: ['client-offers'] });
+      queryClient.invalidateQueries({ queryKey: ['client-offers-trash'] });
       setError('');
     },
     onError: (err) => setError(apiErrorMessage(err)),
   });
-
-  function toggleSelectedClient(campaignId: string, clientId: string) {
-    setSelectedClients((s) => {
-      const current = s[campaignId] ?? [];
-      const next = current.includes(clientId) ? current.filter((id) => id !== clientId) : [...current, clientId];
-      return { ...s, [campaignId]: next };
-    });
-  }
-
-  function toggleCreateSelectedClient(clientId: string) {
-    setCreateSelectedClients((s) => (s.includes(clientId) ? s.filter((id) => id !== clientId) : [...s, clientId]));
-  }
 
   function addPhoneRecipient(campaignId: string, recipient: PhoneRecipient) {
     setPhoneRecipients((p) => ({ ...p, [campaignId]: [...(p[campaignId] ?? []), recipient] }));
@@ -865,16 +776,29 @@ export default function AdminOffers() {
     return c.status !== 'COMPLETED';
   });
 
+  if (features && features.OFFER_MESSAGES !== true) {
+    return (
+      <div className="space-y-6 animate-glass-entrance">
+        <div>
+          <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">Promotional Campaigns</h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400">Send broadcasts and offers to your own customers over WhatsApp.</p>
+        </div>
+        <Card className="p-8 text-center">
+          <p className="text-sm font-semibold text-slate-600 dark:text-slate-300">This feature isn't enabled on your plan yet.</p>
+          <p className="mt-1 text-xs text-slate-400">Contact the platform admin to turn on Offer Messages for your account.</p>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8 animate-glass-entrance">
-      {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-            Client Promotional Campaigns
-          </h1>
+          <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">Promotional Campaigns</h1>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Deliver broadcast promotional announcements and feature updates to registered tenant clients. Supports <code className="bg-slate-500/10 px-1 py-0.5 rounded text-brand-600 dark:text-brand-400 font-mono">{'{{businessName}}'}</code>.
+            Send broadcasts, offers, and announcements to your own customers over your connected WhatsApp. Supports{' '}
+            <code className="bg-slate-500/10 px-1 py-0.5 rounded text-brand-600 dark:text-brand-400 font-mono">{'{{businessName}}'}</code>.
           </p>
         </div>
         <div className="flex items-center gap-2.5">
@@ -884,7 +808,6 @@ export default function AdminOffers() {
         </div>
       </div>
 
-      {/* Campaign Form */}
       {showCreate && (
         <Card className="p-6 animate-tab-content">
           <h2 className="mb-4 text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
@@ -894,29 +817,19 @@ export default function AdminOffers() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Campaign Title</label>
-              <Input
-                placeholder="e.g. Diwali 50% Off Subscription Upgrade"
-                required
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-              />
+              <Input placeholder="e.g. Weekend Special 20% Off" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </div>
 
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Generate with AI (optional)</label>
               <div className="flex items-center gap-2.5">
                 <Input
-                  placeholder="e.g. Diwali sale, 50% off annual plans, code DIWALI50"
+                  placeholder="e.g. Weekend sale, 20% off, code WEEKEND20"
                   value={aiPrompt}
                   onChange={(e) => setAiPrompt(e.target.value)}
                   className="text-xs"
                 />
-                <Button
-                  type="button"
-                  className="px-3 py-1.5 text-xs whitespace-nowrap"
-                  disabled={!aiPrompt.trim() || generateTextMutation.isPending}
-                  onClick={() => generateTextMutation.mutate()}
-                >
+                <Button type="button" className="px-3 py-1.5 text-xs whitespace-nowrap" disabled={!aiPrompt.trim() || generateTextMutation.isPending} onClick={() => generateTextMutation.mutate()}>
                   {generateTextMutation.isPending ? 'Writing...' : '✨ Generate'}
                 </Button>
               </div>
@@ -925,7 +838,7 @@ export default function AdminOffers() {
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Broadcast Message</label>
               <Textarea
-                placeholder="Hi {{businessName}}, celebrate Diwali with 50% off all annual plans! Use promo code DIWALI50 on checkout."
+                placeholder="Hi {{businessName}}, this weekend only — 20% off! Use code WEEKEND20 at checkout."
                 rows={4}
                 required
                 value={form.message}
@@ -941,17 +854,10 @@ export default function AdminOffers() {
                   {form.mediaType === 'VIDEO' && <video src={form.mediaUrl} className="h-14 w-14 rounded-md bg-black object-cover" />}
                   {form.mediaType === 'DOCUMENT' && <span className="text-2xl">📄</span>}
                   <span className="flex-1 truncate text-xs text-slate-600 dark:text-slate-300">{form.mediaFileName}</span>
-                  <Button type="button" onClick={removeMedia} className="px-2 py-1 text-xs">
-                    Remove
-                  </Button>
+                  <Button type="button" onClick={removeMedia} className="px-2 py-1 text-xs">Remove</Button>
                 </div>
               ) : (
-                <Button
-                  type="button"
-                  onClick={() => mediaInputRef.current?.click()}
-                  disabled={uploadMediaMutation.isPending}
-                  className="px-3 py-1.5 text-xs"
-                >
+                <Button type="button" onClick={() => mediaInputRef.current?.click()} disabled={uploadMediaMutation.isPending} className="px-3 py-1.5 text-xs">
                   {uploadMediaMutation.isPending ? 'Uploading...' : '+ Attach File'}
                 </Button>
               )}
@@ -960,39 +866,28 @@ export default function AdminOffers() {
             </div>
 
             {!editingId && (
-              <div>
+              <div className="space-y-2">
                 <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Send To (used only if you send immediately)</label>
-                <Select value={createTarget} onChange={(e) => setCreateTarget(e.target.value)} className="text-xs">
-                  <option value="ACTIVE_CLIENTS">Active clients only</option>
-                  <option value="ALL_CLIENTS">All clients</option>
-                  <option value="SPECIFIC_CLIENTS">Specific client(s)...</option>
+                <Select value={createTarget} onChange={(e) => setCreateTarget(e.target.value as 'PHONE_NUMBERS' | 'GROUP')} className="text-xs">
                   <option value="PHONE_NUMBERS">Phone number(s)...</option>
                   <option value="GROUP">Contact group...</option>
                 </Select>
-                {createTarget === 'SPECIFIC_CLIENTS' && (
-                  <div className="mt-2">
-                    <ClientPicker clients={clientOptions ?? []} selected={createSelectedClients} onToggle={toggleCreateSelectedClient} />
-                  </div>
-                )}
                 {createTarget === 'PHONE_NUMBERS' && (
-                  <div className="mt-2">
-                    <PhoneNumberEntry
-                      recipients={createPhoneRecipients}
-                      onAdd={(r) => setCreatePhoneRecipients((s) => [...s, r])}
-                      onRemove={(i) => setCreatePhoneRecipients((s) => s.filter((_, idx) => idx !== i))}
-                    />
-                  </div>
+                  <PhoneNumberEntry
+                    recipients={createPhoneRecipients}
+                    onAdd={(r) => setCreatePhoneRecipients((s) => [...s, r])}
+                    onRemove={(i) => setCreatePhoneRecipients((s) => s.filter((_, idx) => idx !== i))}
+                  />
                 )}
                 {createTarget === 'GROUP' && (
-                  <Select value={createGroupId} onChange={(e) => setCreateGroupId(e.target.value)} className="mt-2 text-xs">
+                  <Select value={createGroupId} onChange={(e) => setCreateGroupId(e.target.value)} className="text-xs">
                     <option value="">Select a group...</option>
                     {offerGroups?.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.name} ({g._count.members})
-                      </option>
+                      <option key={g.id} value={g.id}>{g.name} ({g._count.members})</option>
                     ))}
                   </Select>
                 )}
+                <SessionPicker accounts={accounts ?? []} value={createSessionId} onChange={setCreateSessionId} />
               </div>
             )}
 
@@ -1002,9 +897,7 @@ export default function AdminOffers() {
                   <Button type="submit" disabled={updateMutation.isPending} className="text-xs">
                     {updateMutation.isPending ? 'Saving Changes...' : 'Save Changes'}
                   </Button>
-                  <Button type="button" variant="secondary" onClick={resetCreateForm} className="text-xs">
-                    Cancel
-                  </Button>
+                  <Button type="button" variant="secondary" onClick={resetCreateForm} className="text-xs">Cancel</Button>
                 </>
               ) : (
                 <>
@@ -1023,7 +916,7 @@ export default function AdminOffers() {
                     disabled={
                       createMutation.isPending ||
                       createAndSendMutation.isPending ||
-                      (createTarget === 'SPECIFIC_CLIENTS' && createSelectedClients.length === 0) ||
+                      !createSessionId ||
                       (createTarget === 'PHONE_NUMBERS' && createPhoneRecipients.length === 0) ||
                       (createTarget === 'GROUP' && !createGroupId)
                     }
@@ -1045,7 +938,6 @@ export default function AdminOffers() {
         </div>
       )}
 
-      {/* Smooth Filter Tabs */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <Tabs
           tabs={[
@@ -1061,7 +953,7 @@ export default function AdminOffers() {
       </div>
 
       {activeFilter === 'CONTACTS' ? (
-        <GroupsPanel onError={setError} />
+        <GroupsPanel accounts={accounts ?? []} onError={setError} />
       ) : activeFilter === 'TRASH' ? (
         <TrashPanel onError={setError} />
       ) : isLoading ? (
@@ -1076,17 +968,10 @@ export default function AdminOffers() {
                   <div className="flex shrink-0 items-center gap-2">
                     <Badge tone={STATUS_TONE[c.status] ?? 'gray'}>{c.status}</Badge>
                     {c.status === 'DRAFT' && (
-                      <Button variant="secondary" className="px-2.5 py-1 text-[11px]" onClick={() => startEdit(c)}>
-                        Edit
-                      </Button>
+                      <Button variant="secondary" className="px-2.5 py-1 text-[11px]" onClick={() => startEdit(c)}>Edit</Button>
                     )}
                     {c.status !== 'RUNNING' && (
-                      <Button
-                        variant="danger"
-                        className="px-2.5 py-1 text-[11px]"
-                        onClick={() => deleteMutation.mutate(c.id)}
-                        disabled={deleteMutation.isPending}
-                      >
+                      <Button variant="danger" className="px-2.5 py-1 text-[11px]" onClick={() => deleteMutation.mutate(c.id)} disabled={deleteMutation.isPending}>
                         Delete
                       </Button>
                     )}
@@ -1106,39 +991,11 @@ export default function AdminOffers() {
 
               {c.status === 'DRAFT' && (
                 <div className="mt-4 space-y-2.5 border-t border-slate-100 pt-3 dark:border-white/5">
-                  <div className="flex items-center gap-2.5">
-                    <Select
-                      value={target[c.id] ?? 'ACTIVE_CLIENTS'}
-                      onChange={(e) => setTarget((t) => ({ ...t, [c.id]: e.target.value }))}
-                      className="text-xs"
-                    >
-                      <option value="ACTIVE_CLIENTS">Active clients only</option>
-                      <option value="ALL_CLIENTS">All clients</option>
-                      <option value="SPECIFIC_CLIENTS">Specific client(s)...</option>
-                      <option value="PHONE_NUMBERS">Phone number(s)...</option>
-                      <option value="GROUP">Contact group...</option>
-                    </Select>
-                    <Button
-                      className="px-3 py-1.5 text-xs whitespace-nowrap"
-                      onClick={() => sendMutation.mutate(c.id)}
-                      disabled={
-                        sendMutation.isPending ||
-                        (target[c.id] === 'SPECIFIC_CLIENTS' && !(selectedClients[c.id]?.length)) ||
-                        (target[c.id] === 'PHONE_NUMBERS' && !(phoneRecipients[c.id]?.length)) ||
-                        (target[c.id] === 'GROUP' && !groupId[c.id])
-                      }
-                    >
-                      {sendMutation.isPending ? 'Queuing...' : 'Broadcast Now'}
-                    </Button>
-                  </div>
-                  {target[c.id] === 'SPECIFIC_CLIENTS' && (
-                    <ClientPicker
-                      clients={clientOptions ?? []}
-                      selected={selectedClients[c.id] ?? []}
-                      onToggle={(clientId) => toggleSelectedClient(c.id, clientId)}
-                    />
-                  )}
-                  {target[c.id] === 'PHONE_NUMBERS' && (
+                  <Select value={target[c.id] ?? 'PHONE_NUMBERS'} onChange={(e) => setTarget((t) => ({ ...t, [c.id]: e.target.value as 'PHONE_NUMBERS' | 'GROUP' }))} className="text-xs">
+                    <option value="PHONE_NUMBERS">Phone number(s)...</option>
+                    <option value="GROUP">Contact group...</option>
+                  </Select>
+                  {(target[c.id] ?? 'PHONE_NUMBERS') === 'PHONE_NUMBERS' && (
                     <PhoneNumberEntry
                       recipients={phoneRecipients[c.id] ?? []}
                       onAdd={(r) => addPhoneRecipient(c.id, r)}
@@ -1146,27 +1003,32 @@ export default function AdminOffers() {
                     />
                   )}
                   {target[c.id] === 'GROUP' && (
-                    <Select
-                      value={groupId[c.id] ?? ''}
-                      onChange={(e) => setGroupId((g) => ({ ...g, [c.id]: e.target.value }))}
-                      className="text-xs"
-                    >
+                    <Select value={groupId[c.id] ?? ''} onChange={(e) => setGroupId((g) => ({ ...g, [c.id]: e.target.value }))} className="text-xs">
                       <option value="">Select a group...</option>
                       {offerGroups?.map((g) => (
-                        <option key={g.id} value={g.id}>
-                          {g.name} ({g._count.members})
-                        </option>
+                        <option key={g.id} value={g.id}>{g.name} ({g._count.members})</option>
                       ))}
                     </Select>
                   )}
+                  <SessionPicker accounts={accounts ?? []} value={sessionId[c.id] ?? ''} onChange={(v) => setSessionId((s) => ({ ...s, [c.id]: v }))} />
+                  <Button
+                    className="w-full px-3 py-1.5 text-xs whitespace-nowrap"
+                    onClick={() => sendMutation.mutate(c.id)}
+                    disabled={
+                      sendMutation.isPending ||
+                      !sessionId[c.id] ||
+                      ((target[c.id] ?? 'PHONE_NUMBERS') === 'PHONE_NUMBERS' && !(phoneRecipients[c.id]?.length)) ||
+                      (target[c.id] === 'GROUP' && !groupId[c.id])
+                    }
+                  >
+                    {sendMutation.isPending ? 'Queuing...' : 'Broadcast Now'}
+                  </Button>
                 </div>
               )}
             </Card>
           ))}
           {filteredCampaigns?.length === 0 && (
-            <div className="col-span-full py-12 text-center text-sm text-slate-400">
-              No promotional campaigns found matching the selected filter.
-            </div>
+            <div className="col-span-full py-12 text-center text-sm text-slate-400">No promotional campaigns found matching the selected filter.</div>
           )}
         </div>
       )}
