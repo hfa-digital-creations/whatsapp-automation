@@ -264,6 +264,8 @@ model Client {
   voucherUsages       VoucherUsage[]
   campaignMessages    CampaignMessage[]
   offerGroupMembers   OfferGroupMember[]
+  ownedCampaigns      Campaign[]         @relation("ClientOwnedCampaigns")
+  ownedOfferGroups    OfferGroup[]       @relation("ClientOwnedOfferGroups")
 
   @@index([planId])
 }
@@ -619,7 +621,14 @@ model Campaign {
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
 
+  /// Null = admin-authored campaign (spec default, unchanged). Set = a client's own
+  /// promotional campaign to their own customers, sent via their own WhatsApp account.
+  ownerClientId String?
+  ownerClient   Client?    @relation("ClientOwnedCampaigns", fields: [ownerClientId], references: [id], onDelete: Cascade)
+
   messages  CampaignMessage[]
+
+  @@index([ownerClientId])
 }
 
 model CampaignMessage {
@@ -652,7 +661,14 @@ model OfferGroup {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Null = admin-owned group (spec default, unchanged). Set = a client's own contact
+  /// group of their customers, usable only from that client's own campaigns.
+  ownerClientId String?
+  ownerClient   Client? @relation("ClientOwnedOfferGroups", fields: [ownerClientId], references: [id], onDelete: Cascade)
+
   members OfferGroupMember[]
+
+  @@index([ownerClientId])
 }
 
 model OfferGroupMember {

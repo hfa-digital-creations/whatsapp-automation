@@ -48,6 +48,18 @@ Rules:
   only use details actually given.
 - Output ONLY the final message text, nothing else (no preamble, no quotes around it).`;
 
+/** Used instead of the above when a CLIENT (not the platform admin) is drafting a campaign to their own customers. */
+const GENERATE_TEXT_CLIENT_SYSTEM_PROMPT = `You write short, warm, persuasive WhatsApp broadcast messages for a
+business owner to send to their own customers as promotional offers or announcements.
+
+Rules:
+- Plain text only, no markdown formatting (WhatsApp's own *bold*/_italic_ is fine, used sparingly).
+- Include the placeholder {{businessName}} at least once so the message can be personalized per recipient, if a name is available.
+- Keep it concise — 2 to 5 short lines, WhatsApp-appropriate, not an email.
+- Never invent specific prices, dates, or promo codes that aren't mentioned in the instructions below —
+  only use details actually given.
+- Output ONLY the final message text, nothing else (no preamble, no quotes around it).`;
+
 @Injectable()
 export class OffersService {
   private readonly logger = new Logger(OffersService.name);
@@ -70,20 +82,26 @@ export class OffersService {
     return path.join(this.uploadRoot, 'offers', storedFileName);
   }
 
-  create(name: string, message: string, media?: { mediaUrl?: string; mediaType?: OfferMediaType; mediaFileName?: string }) {
-    return this.campaignsService.create(CampaignType.OFFER, name, { message, ...media });
+  create(
+    name: string,
+    message: string,
+    media?: { mediaUrl?: string; mediaType?: OfferMediaType; mediaFileName?: string },
+    ownerClientId: string | null = null,
+  ) {
+    return this.campaignsService.create(CampaignType.OFFER, name, ownerClientId, { message, ...media });
   }
 
-  list() {
-    return this.campaignsService.list(CampaignType.OFFER);
+  list(ownerClientId: string | null = null) {
+    return this.campaignsService.list(CampaignType.OFFER, ownerClientId);
   }
 
-  getMessages(campaignId: string) {
+  async getMessages(campaignId: string, ownerClientId: string | null = null) {
+    await this.campaignsService.getById(campaignId, ownerClientId);
     return this.campaignsService.listMessages(campaignId);
   }
 
-  listTrash() {
-    return this.campaignsService.listTrash(CampaignType.OFFER);
+  listTrash(ownerClientId: string | null = null) {
+    return this.campaignsService.listTrash(CampaignType.OFFER, ownerClientId);
   }
 
   /**
@@ -101,8 +119,9 @@ export class OffersService {
       mediaType?: OfferMediaType | null;
       mediaFileName?: string | null;
     },
+    ownerClientId: string | null = null,
   ) {
-    const campaign = await this.campaignsService.getById(campaignId);
+    const campaign = await this.campaignsService.getById(campaignId, ownerClientId);
     if (campaign.type !== CampaignType.OFFER) throw new BadRequestException('Not an offer campaign.');
     if (campaign.deletedAt) throw new BadRequestException('This campaign is in the trash — restore it first.');
     if (campaign.status !== CampaignStatus.DRAFT) {
@@ -139,24 +158,24 @@ export class OffersService {
   }
 
   /** Blocked while RUNNING so a trash action can never race an in-progress batched send. Media/history are kept in case of restore. */
-  async moveToTrash(campaignId: string) {
-    const campaign = await this.campaignsService.getById(campaignId);
+  async moveToTrash(campaignId: string, ownerClientId: string | null = null) {
+    const campaign = await this.campaignsService.getById(campaignId, ownerClientId);
     if (campaign.type !== CampaignType.OFFER) throw new BadRequestException('Not an offer campaign.');
     if (campaign.status === CampaignStatus.RUNNING) {
       throw new BadRequestException('This campaign is currently sending — wait for it to finish before deleting it.');
     }
-    return this.campaignsService.softDelete(campaignId);
+    return this.campaignsService.softDelete(campaignId, ownerClientId);
   }
 
-  async restore(campaignId: string) {
-    const campaign = await this.campaignsService.getById(campaignId);
+  async restore(campaignId: string, ownerClientId: string | null = null) {
+    const campaign = await this.campaignsService.getById(campaignId, ownerClientId);
     if (campaign.type !== CampaignType.OFFER) throw new BadRequestException('Not an offer campaign.');
-    return this.campaignsService.restore(campaignId);
+    return this.campaignsService.restore(campaignId, ownerClientId);
   }
 
   /** Only ever called on an already-trashed campaign — removes its attached media file and cascades to its CampaignMessages. */
-  async permanentlyDelete(campaignId: string) {
-    const campaign = await this.campaignsService.getById(campaignId);
+  async permanentlyDelete(campaignId: string, ownerClientId: string | null = null) {
+    const campaign = await this.campaignsService.getById(campaignId, ownerClientId);
     if (campaign.type !== CampaignType.OFFER) throw new BadRequestException('Not an offer campaign.');
 
     const config = campaign.config as OfferCampaignConfig | null;
@@ -164,7 +183,7 @@ export class OffersService {
       fs.rmSync(this.resolveMediaPath(config.mediaUrl), { force: true });
     }
 
-    return this.campaignsService.permanentlyDelete(campaignId);
+    return this.campaignsService.permanentlyDelete(campaignId, ownerClientId);
   }
 
   /** Stores an uploaded image/video/PDF to disk and returns the details to attach to an offer campaign. */
@@ -191,23 +210,40 @@ export class OffersService {
     };
   }
 
-  /** AI-drafted broadcast copy from a short admin prompt — a starting point the admin can still edit before sending. */
-  async generateText(prompt: string): Promise<string> {
+  /**
+   * A one-off follow-up message to a single contact — deliberately not a Campaign (no
+   * batching, no history), just an immediate WhatsApp send, available from the Contacts
+   * tab in both the admin and client offer campaign panels.
+   */
+  async sendFollowup(phone: string, message: string, sessionId?: string): Promise<{ sent: boolean }> {
+    const { whatsappSent } = await this.notificationsService.sendCustom({
+      phone,
+      subject: 'Follow-up message',
+      whatsappMessage: message,
+      sessionId,
+    });
+    if (!whatsappSent) throw new BadRequestException('Could not send the message — check the number and WhatsApp connection.');
+    return { sent: true };
+  }
+
+  /** AI-drafted broadcast copy from a short prompt — a starting point the caller can still edit before sending. */
+  async generateText(prompt: string, audience: 'clients' | 'customers' = 'clients'): Promise<string> {
     if (!this.ai.isConfigured) {
       throw new BadRequestException('AI text generation is not configured on this server.');
     }
-    const text = await this.ai.complete({ system: GENERATE_TEXT_SYSTEM_PROMPT, prompt, maxTokens: 400 });
+    const system = audience === 'customers' ? GENERATE_TEXT_CLIENT_SYSTEM_PROMPT : GENERATE_TEXT_SYSTEM_PROMPT;
+    const text = await this.ai.complete({ system, prompt, maxTokens: 400 });
     if (!text) throw new BadRequestException('AI text generation failed — please try again or write the message manually.');
     return text.trim();
   }
 
   /**
    * Validates a send request up front (before it's handed to the background queue) so
-   * the admin gets an immediate, synchronous error for anything wrong with the campaign
+   * the caller gets an immediate, synchronous error for anything wrong with the campaign
    * itself, rather than finding out minutes later once the batched job has started.
    */
-  async prepareSend(campaignId: string, messageOverride?: string) {
-    const campaign = await this.campaignsService.getById(campaignId);
+  async prepareSend(campaignId: string, ownerClientId: string | null = null, messageOverride?: string) {
+    const campaign = await this.campaignsService.getById(campaignId, ownerClientId);
     if (campaign.type !== CampaignType.OFFER) throw new BadRequestException('Not an offer campaign.');
     if (campaign.deletedAt) throw new BadRequestException('This campaign is in the trash — restore it first.');
     if (campaign.status === CampaignStatus.RUNNING) {
@@ -239,6 +275,9 @@ export class OffersService {
     clientIds?: string[],
     phoneNumbers?: OfferPhoneRecipient[],
     groupId?: string,
+    /** Which WhatsApp session sends this — defaults to the platform's system number (admin
+     * campaigns); a client's own campaign passes their own connected account's sessionId. */
+    sendSessionId?: string,
   ) {
     const campaign = await this.campaignsService.getById(campaignId);
     const config = campaign.config as OfferCampaignConfig | null;
@@ -326,6 +365,7 @@ export class OffersService {
             emailHtml: recipient.email ? `<p>${personalized}</p>` : undefined,
             whatsappMessage: personalized,
             media,
+            sessionId: sendSessionId,
           });
           await this.campaignsService.recordMessage({
             ...recordBase,

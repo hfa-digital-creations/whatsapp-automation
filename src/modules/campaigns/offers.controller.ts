@@ -12,6 +12,7 @@ import { CreateOfferDto } from './dto/create-offer.dto';
 import { UpdateOfferDto } from './dto/update-offer.dto';
 import { SendOfferDto } from './dto/send-offer.dto';
 import { GenerateOfferTextDto } from './dto/generate-offer-text.dto';
+import { SendFollowupDto } from './dto/client-offer.dto';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { MAX_OFFER_MEDIA_BYTES } from './offer-media.util';
 
@@ -27,32 +28,37 @@ export class OffersController {
 
   @Get()
   list() {
-    return this.offersService.list();
+    return this.offersService.list(null);
   }
 
   @Get('trash')
   listTrash() {
-    return this.offersService.listTrash();
+    return this.offersService.listTrash(null);
   }
 
   @Get(':id/messages')
   getMessages(@Param('id') id: string) {
-    return this.offersService.getMessages(id);
+    return this.offersService.getMessages(id, null);
   }
 
   @Post()
   create(@Body() dto: CreateOfferDto) {
-    return this.offersService.create(dto.name, dto.message, {
-      mediaUrl: dto.mediaUrl,
-      mediaType: dto.mediaType,
-      mediaFileName: dto.mediaFileName,
-    });
+    return this.offersService.create(
+      dto.name,
+      dto.message,
+      {
+        mediaUrl: dto.mediaUrl,
+        mediaType: dto.mediaType,
+        mediaFileName: dto.mediaFileName,
+      },
+      null,
+    );
   }
 
   /** Only DRAFT campaigns can be edited — see OffersService.update() for why. */
   @Patch(':id')
   async update(@Param('id') id: string, @Body() dto: UpdateOfferDto, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
-    const result = await this.offersService.update(id, dto);
+    const result = await this.offersService.update(id, dto, null);
     await this.auditLogService.record({
       adminId: admin.userId,
       action: 'OFFER_CAMPAIGN_UPDATED',
@@ -74,8 +80,14 @@ export class OffersController {
   /** Drafts broadcast copy from a short admin prompt via the AI provider — a starting point, not a final send. */
   @Post('generate-message')
   async generateMessage(@Body() dto: GenerateOfferTextDto) {
-    const message = await this.offersService.generateText(dto.prompt);
+    const message = await this.offersService.generateText(dto.prompt, 'clients');
     return { message };
+  }
+
+  /** Sends a one-off AI-draftable follow-up message to a single contact — see OffersService.sendFollowup(). */
+  @Post('followup')
+  sendFollowup(@Body() dto: SendFollowupDto) {
+    return this.offersService.sendFollowup(dto.phone, dto.message);
   }
 
   /**
@@ -105,11 +117,11 @@ export class OffersController {
     }
     if (dto.target === 'GROUP') {
       if (!dto.groupId) throw new BadRequestException('Select a group to send this offer to.');
-      const group = await this.offerGroupsService.getById(dto.groupId);
+      const group = await this.offerGroupsService.getById(dto.groupId, null);
       if (!group.members.length) throw new BadRequestException('This group has no members yet.');
     }
 
-    const { message } = await this.offersService.prepareSend(id, dto.messageOverride);
+    const { message } = await this.offersService.prepareSend(id, null, dto.messageOverride);
     await this.offersQueue.add(
       'send-offer',
       { campaignId: id, target: dto.target, message, clientIds: dto.clientIds, phoneNumbers, groupId: dto.groupId },
@@ -135,7 +147,7 @@ export class OffersController {
   /** Moves the campaign to trash — blocked while RUNNING. Restorable until permanently deleted. */
   @Delete(':id')
   async moveToTrash(@Param('id') id: string, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
-    const result = await this.offersService.moveToTrash(id);
+    const result = await this.offersService.moveToTrash(id, null);
     await this.auditLogService.record({
       adminId: admin.userId,
       action: 'OFFER_CAMPAIGN_TRASHED',
@@ -148,7 +160,7 @@ export class OffersController {
 
   @Post(':id/restore')
   async restore(@Param('id') id: string, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
-    const result = await this.offersService.restore(id);
+    const result = await this.offersService.restore(id, null);
     await this.auditLogService.record({
       adminId: admin.userId,
       action: 'OFFER_CAMPAIGN_RESTORED',
@@ -161,7 +173,7 @@ export class OffersController {
 
   @Delete(':id/permanent')
   async permanentlyDelete(@Param('id') id: string, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
-    const result = await this.offersService.permanentlyDelete(id);
+    const result = await this.offersService.permanentlyDelete(id, null);
     await this.auditLogService.record({
       adminId: admin.userId,
       action: 'OFFER_CAMPAIGN_PERMANENTLY_DELETED',

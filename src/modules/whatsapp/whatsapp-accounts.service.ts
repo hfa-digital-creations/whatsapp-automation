@@ -148,6 +148,7 @@ export class WhatsappAccountsService {
     this.events.emit(WHATSAPP_MESSAGE_RECEIVED_EVENT, {
       sessionId: account.sessionId,
       fromPhone: dto.fromPhone.replace(/\D/g, ''),
+      resolvedPhone: dto.fromPhone.replace(/\D/g, ''),
       customerName: dto.customerName ?? null,
       body: dto.body,
     });

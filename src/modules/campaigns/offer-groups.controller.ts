@@ -17,39 +17,39 @@ export class OfferGroupsController {
 
   @Get()
   list() {
-    return this.offerGroupsService.list();
+    return this.offerGroupsService.list(null);
   }
 
   @Get(':id')
   getById(@Param('id') id: string) {
-    return this.offerGroupsService.getById(id);
+    return this.offerGroupsService.getById(id, null);
   }
 
   @Post()
   create(@Body() dto: UpsertOfferGroupDto) {
-    return this.offerGroupsService.create(dto.name);
+    return this.offerGroupsService.create(dto.name, null);
   }
 
   @Patch(':id')
   rename(@Param('id') id: string, @Body() dto: UpsertOfferGroupDto) {
-    return this.offerGroupsService.rename(id, dto.name);
+    return this.offerGroupsService.rename(id, dto.name, null);
   }
 
   @Delete(':id')
   delete(@Param('id') id: string) {
-    return this.offerGroupsService.delete(id);
+    return this.offerGroupsService.delete(id, null);
   }
 
   @Post(':id/members')
   addMember(@Param('id') id: string, @Body() dto: AddGroupMemberDto) {
-    if (dto.clientId) return this.offerGroupsService.addClientMember(id, dto.clientId);
-    if (dto.phone) return this.offerGroupsService.addPhoneMember(id, dto.phone, dto.name);
+    if (dto.clientId) return this.offerGroupsService.addClientMember(id, dto.clientId, null);
+    if (dto.phone) return this.offerGroupsService.addPhoneMember(id, dto.phone, dto.name, null);
     throw new BadRequestException('Provide either clientId or phone.');
   }
 
   @Delete(':id/members/:memberId')
   removeMember(@Param('id') id: string, @Param('memberId') memberId: string) {
-    return this.offerGroupsService.removeMember(id, memberId);
+    return this.offerGroupsService.removeMember(id, memberId, null);
   }
 
   /** Exports the group's members (client and manual phone members alike) as a downloadable .vcf or .csv file. */
@@ -59,7 +59,7 @@ export class OfferGroupsController {
     if (format !== 'vcf' && format !== 'csv') {
       throw new BadRequestException('format must be "vcf" or "csv".');
     }
-    const contacts = await this.offerGroupsService.exportContacts(id);
+    const contacts = await this.offerGroupsService.exportContacts(id, null);
     const content = format === 'csv' ? buildCsv(contacts) : buildVcf(contacts);
     res.setHeader('Content-Type', format === 'csv' ? 'text/csv; charset=utf-8' : 'text/vcard; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="group-contacts-export.${format}"`);
@@ -81,6 +81,6 @@ export class OfferGroupsController {
   )
   importVcf(@Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
     if (!file) throw new BadRequestException('No file uploaded.');
-    return this.offerGroupsService.importVcf(id, file);
+    return this.offerGroupsService.importVcf(id, file, null);
   }
 }

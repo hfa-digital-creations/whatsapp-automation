@@ -82,7 +82,11 @@ export class NotificationsService implements OnModuleInit {
     whatsappMessage?: string;
     /** Optional local file (image/video/document) attached to both the email and WhatsApp send. */
     media?: { filePath: string; fileName: string } | null;
+    /** Which WhatsApp session to send from — defaults to the platform's own system number.
+     * A client's own promotional campaign sends via their own connected account instead. */
+    sessionId?: string;
   }): Promise<{ emailSent: boolean; whatsappSent: boolean }> {
+    const sessionId = params.sessionId ?? SYSTEM_WHATSAPP_SESSION_ID;
     const emailSent =
       params.email && params.emailHtml
         ? await this.emailService.send(
@@ -96,12 +100,12 @@ export class NotificationsService implements OnModuleInit {
       params.phone && params.whatsappMessage
         ? params.media
           ? await this.whatsappSessionManager.sendMediaMessage(
-              SYSTEM_WHATSAPP_SESSION_ID,
+              sessionId,
               params.phone,
               params.media.filePath,
               params.whatsappMessage,
             )
-          : await this.whatsappSessionManager.sendMessage(SYSTEM_WHATSAPP_SESSION_ID, params.phone, params.whatsappMessage)
+          : await this.whatsappSessionManager.sendMessage(sessionId, params.phone, params.whatsappMessage)
         : false;
     return { emailSent, whatsappSent };
   }

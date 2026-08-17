@@ -14,6 +14,8 @@ export interface OfferSendJobData {
   phoneNumbers?: OfferPhoneRecipient[];
   /** Only set when target is GROUP. */
   groupId?: string;
+  /** Only set for a client's own campaign — the client's connected WhatsApp account to send from. */
+  sessionId?: string;
 }
 
 @Processor('offers')
@@ -26,8 +28,8 @@ export class OfferSendProcessor extends WorkerHost {
 
   async process(job: Job<OfferSendJobData>): Promise<void> {
     if (job.name !== 'send-offer') return;
-    const { campaignId, target, message, clientIds, phoneNumbers, groupId } = job.data;
-    const result = await this.offersService.executeSend(campaignId, target, message, clientIds, phoneNumbers, groupId);
+    const { campaignId, target, message, clientIds, phoneNumbers, groupId, sessionId } = job.data;
+    const result = await this.offersService.executeSend(campaignId, target, message, clientIds, phoneNumbers, groupId, sessionId);
     this.logger.log(`Offer campaign ${campaignId} complete: ${JSON.stringify(result)}`);
   }
 }

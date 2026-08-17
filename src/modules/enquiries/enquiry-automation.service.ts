@@ -116,10 +116,18 @@ Their message: ${enquiry.message ?? '(no message provided)'}`;
   @OnEvent(WHATSAPP_MESSAGE_RECEIVED_EVENT)
   async handleIncomingMessage(event: WhatsappMessageReceivedEvent) {
     if (event.sessionId !== SYSTEM_WHATSAPP_SESSION_ID) return;
-    if (!this.ai.isConfigured) return;
+    if (!this.ai.isConfigured) {
+      this.logger.warn('Skipping enquiry auto-reply: AI provider not configured.');
+      return;
+    }
 
-    const enquiry = await this.findOpenEnquiryByPhone(event.fromPhone);
-    if (!enquiry) return;
+    const enquiry = await this.findOpenEnquiryByPhone(event.fromPhone, event.resolvedPhone);
+    if (!enquiry) {
+      // Deliberately quiet at info level, not warn — most inbound messages on the system
+      // number legitimately aren't from an open enquiry (e.g. a client texting support).
+      this.logger.log(`No open enquiry matched inbound message from ${event.resolvedPhone ?? event.fromPhone} — ignoring.`);
+      return;
+    }
 
     await this.recordMessage(enquiry.id, MessageDirection.INBOUND, event.body);
 
@@ -142,17 +150,29 @@ Their message: ${enquiry.message ?? '(no message provided)'}`;
     if (sent) await this.recordMessage(enquiry.id, MessageDirection.OUTBOUND, reply);
   }
 
-  /** Matches on trailing digits so a stored number with/without a country code still matches the WhatsApp JID. */
-  private async findOpenEnquiryByPhone(fromPhone: string): Promise<Enquiry | null> {
-    const digits = fromPhone.replace(/\D/g, '');
-    const candidates = await this.prisma.enquiry.findMany({
+  /**
+   * Matches on trailing digits so a stored number with/without a country code still
+   * matches the WhatsApp JID. Tries the resolved real phone number first (WhatsApp
+   * increasingly hands `fromPhone` back as a privacy-preserving Linked ID, `@lid`,
+   * rather than an actual number — matching that against a submitted phone number
+   * would never succeed even with digit normalization, since a LID isn't a reformatted
+   * phone number at all), then falls back to fromPhone for the older/common case.
+   */
+  private async findOpenEnquiryByPhone(fromPhone: string, resolvedPhone: string | null): Promise<Enquiry | null> {
+    const candidateDigits = [resolvedPhone, fromPhone]
+      .filter((p): p is string => !!p)
+      .map((p) => p.replace(/\D/g, ''))
+      .filter(Boolean);
+    if (!candidateDigits.length) return null;
+
+    const enquiries = await this.prisma.enquiry.findMany({
       where: { status: { notIn: [EnquiryStatus.CONVERTED, EnquiryStatus.NOT_INTERESTED, EnquiryStatus.CLOSED] } },
       orderBy: { createdAt: 'desc' },
     });
     return (
-      candidates.find((e) => {
+      enquiries.find((e) => {
         const enquiryDigits = e.phone.replace(/\D/g, '');
-        return enquiryDigits.endsWith(digits.slice(-10)) || digits.endsWith(enquiryDigits.slice(-10));
+        return candidateDigits.some((digits) => enquiryDigits.endsWith(digits.slice(-10)) || digits.endsWith(enquiryDigits.slice(-10)));
       }) ?? null
     );
   }

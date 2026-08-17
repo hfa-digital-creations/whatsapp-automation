@@ -30,6 +30,11 @@ export const WHATSAPP_MESSAGE_RECEIVED_EVENT = 'whatsapp.message.received';
 export interface WhatsappMessageReceivedEvent {
   sessionId: string;
   fromPhone: string;
+  /** The contact's real phone number if WhatsApp exposes one (Contact.number) — set
+   * when `fromPhone` is a privacy-preserving Linked ID (`@lid`) rather than an actual
+   * number. Only use this for matching against stored phone numbers; replies must
+   * still go to `fromPhone`, which is the identifier WhatsApp will actually route to. */
+  resolvedPhone: string | null;
   customerName: string | null;
   body: string;
 }
@@ -185,9 +190,16 @@ export class WhatsappSessionManagerService implements OnModuleInit, OnModuleDest
       const NON_CUSTOMER_SUFFIXES = ['@g.us', '@newsletter', '@broadcast'];
       if (msg.fromMe || msg.isStatus || NON_CUSTOMER_SUFFIXES.some((s) => msg.from?.endsWith(s))) return;
       const contact = await msg.getContact().catch(() => null);
+      // contact.number is WhatsApp's best-effort resolved real phone number — present
+      // even when msg.from is a LID (`@lid`) rather than the number itself. Used only
+      // for matching against stored phone numbers (e.g. enquiry auto-replies); replying
+      // must still target fromPhone unchanged, since that's the identifier WhatsApp
+      // actually accepts for this contact (see sendMessage()'s "No LID for user" note).
+      const resolvedPhone: string | null = typeof contact?.number === 'string' ? contact.number.replace(/\D/g, '') : null;
       this.events.emit(WHATSAPP_MESSAGE_RECEIVED_EVENT, {
         sessionId,
         fromPhone: (msg.from as string).replace('@c.us', ''),
+        resolvedPhone,
         customerName: contact?.pushname ?? contact?.name ?? null,
         body: msg.body,
       } satisfies WhatsappMessageReceivedEvent);

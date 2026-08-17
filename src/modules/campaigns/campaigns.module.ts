@@ -11,9 +11,12 @@ import { OfferSendProcessor } from './offer-send.processor';
 import { CampaignsController } from './campaigns.controller';
 import { OffersController } from './offers.controller';
 import { OfferGroupsController } from './offer-groups.controller';
+import { ClientOffersController } from './client-offers.controller';
+import { ClientOfferGroupsController } from './client-offer-groups.controller';
 import { SubscriptionModule } from '../subscription/subscription.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AuditLogModule } from '../audit-log/audit-log.module';
+import { FeaturesModule } from '../features/features.module';
 
 @Module({
   imports: [
@@ -21,8 +24,9 @@ import { AuditLogModule } from '../audit-log/audit-log.module';
     SubscriptionModule,
     NotificationsModule,
     AuditLogModule,
+    FeaturesModule,
   ],
-  controllers: [CampaignsController, OffersController, OfferGroupsController],
+  controllers: [CampaignsController, OffersController, OfferGroupsController, ClientOffersController, ClientOfferGroupsController],
   providers: [
     CampaignsService,
     RenewalReminderService,

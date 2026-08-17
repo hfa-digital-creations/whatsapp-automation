@@ -53,43 +53,50 @@ export class CampaignsService {
     });
   }
 
-  /** Admin-authored campaigns (e.g. Offers) — unlike system campaigns, admins can create many of these. */
-  create(type: CampaignType, name: string, config?: Prisma.InputJsonValue) {
-    return this.prisma.campaign.create({ data: { type, name, config, status: CampaignStatus.DRAFT } });
+  /**
+   * Admin-authored campaigns (e.g. Offers) — unlike system campaigns, admins can create
+   * many of these. `ownerClientId` is null for the admin's own campaigns (spec default,
+   * unchanged) or set when a client is creating their own promotional campaign to their
+   * own customers — every call site passes it explicitly so tenant scope is never implicit.
+   */
+  create(type: CampaignType, name: string, ownerClientId: string | null, config?: Prisma.InputJsonValue) {
+    return this.prisma.campaign.create({ data: { type, name, config, ownerClientId, status: CampaignStatus.DRAFT } });
   }
 
-  list(type?: CampaignType) {
-    return this.prisma.campaign.findMany({ where: { type, deletedAt: null }, orderBy: { createdAt: 'desc' } });
+  list(type: CampaignType | undefined, ownerClientId: string | null) {
+    return this.prisma.campaign.findMany({ where: { type, ownerClientId, deletedAt: null }, orderBy: { createdAt: 'desc' } });
   }
 
-  /** Campaigns the admin has moved to trash, awaiting either restore or permanent removal. */
-  listTrash(type?: CampaignType) {
+  /** Campaigns moved to trash, awaiting either restore or permanent removal. */
+  listTrash(type: CampaignType | undefined, ownerClientId: string | null) {
     return this.prisma.campaign.findMany({
-      where: { type, deletedAt: { not: null } },
+      where: { type, ownerClientId, deletedAt: { not: null } },
       orderBy: { deletedAt: 'desc' },
     });
   }
 
-  async getById(id: string) {
+  /** `ownerClientId` must match the caller's tenant scope (null for admin) — a mismatch means
+   * "not found", not "forbidden", so a client can never learn another tenant's campaign exists. */
+  async getById(id: string, ownerClientId: string | null = null) {
     const campaign = await this.prisma.campaign.findUnique({ where: { id } });
-    if (!campaign) throw new NotFoundException('Campaign not found.');
+    if (!campaign || campaign.ownerClientId !== ownerClientId) throw new NotFoundException('Campaign not found.');
     return campaign;
   }
 
-  async softDelete(id: string) {
-    await this.getById(id);
+  async softDelete(id: string, ownerClientId: string | null = null) {
+    await this.getById(id, ownerClientId);
     await this.prisma.campaign.update({ where: { id }, data: { deletedAt: new Date() } });
     return { deleted: true };
   }
 
-  async restore(id: string) {
-    await this.getById(id);
+  async restore(id: string, ownerClientId: string | null = null) {
+    await this.getById(id, ownerClientId);
     await this.prisma.campaign.update({ where: { id }, data: { deletedAt: null } });
     return { restored: true };
   }
 
-  async permanentlyDelete(id: string) {
-    const campaign = await this.getById(id);
+  async permanentlyDelete(id: string, ownerClientId: string | null = null) {
+    const campaign = await this.getById(id, ownerClientId);
     if (!campaign.deletedAt) {
       throw new BadRequestException('Only trashed campaigns can be permanently deleted — move it to trash first.');
     }
