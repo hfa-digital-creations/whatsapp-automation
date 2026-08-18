@@ -661,7 +661,7 @@ export default function ClientOffers() {
   const [result, setResult] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'ACTIVE' | 'COMPLETED' | 'CONTACTS' | 'TRASH'>('ALL');
   const [showCreate, setShowCreate] = useState(false);
-  const [showQuickImport, setShowQuickImport] = useState(false);
+  const [showQuickImport, setShowQuickImport] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const { data: features } = useQuery<Record<string, boolean>>({

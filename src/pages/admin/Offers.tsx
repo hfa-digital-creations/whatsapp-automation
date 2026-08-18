@@ -744,7 +744,7 @@ export default function AdminOffers() {
   const [result, setResult] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'ACTIVE' | 'COMPLETED' | 'CONTACTS' | 'TRASH'>('ALL');
   const [showCreate, setShowCreate] = useState(false);
-  const [showQuickImport, setShowQuickImport] = useState(false);
+  const [showQuickImport, setShowQuickImport] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [createGroupId, setCreateGroupId] = useState('');
   const [groupId, setGroupId] = useState<Record<string, string>>({});
