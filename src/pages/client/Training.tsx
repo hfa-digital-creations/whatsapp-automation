@@ -1,7 +1,8 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
-import { Badge, Button, Card, ErrorText, Input, Spinner, TabPanel, Tabs, Textarea } from '../../components/ui';
+import { Badge, Button, Card, ErrorText, Input, Pagination, Spinner, TabPanel, Tabs, Textarea } from '../../components/ui';
+import { usePagination } from '../../lib/usePagination';
 
 interface TrainingSource {
   id: string; title: string; type: string; status: string; fileName: string | null; createdAt: string;
@@ -30,6 +31,9 @@ export default function ClientTraining() {
     queryKey: ['client-knowledge'],
     queryFn: async () => (await api.get('/client/training/knowledge')).data.data,
   });
+
+  const sourcesPagination = usePagination(sources, 15);
+  const knowledgePagination = usePagination(knowledge, 20);
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -306,7 +310,7 @@ export default function ClientTraining() {
             <Spinner />
           ) : (
             <ul className="divide-y divide-slate-100 dark:divide-white/5">
-              {sources?.map((s) => (
+              {sourcesPagination.pageItems.map((s) => (
                 <li key={s.id} className="flex flex-wrap items-center justify-between gap-3 py-3.5 text-xs">
                   <div>
                     <p className="font-bold text-slate-800 dark:text-slate-100">{s.title}</p>
@@ -328,12 +332,19 @@ export default function ClientTraining() {
               )}
             </ul>
           )}
+
+          <Pagination
+            page={sourcesPagination.page}
+            totalPages={sourcesPagination.totalPages}
+            onPageChange={sourcesPagination.setPage}
+            className="mt-4"
+          />
         </TabPanel>
 
         {/* Tab 2: Extracted Facts */}
         <TabPanel id="facts" activeTab={activeViewTab}>
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-            {knowledge?.map((k) => (
+            {knowledgePagination.pageItems.map((k) => (
               <div
                 key={k.id}
                 className="rounded-xl border border-slate-200/50 bg-white/40 p-3.5 text-xs dark:border-white/5 dark:bg-white/[0.02] transition-all hover:bg-white/60 dark:hover:bg-white/5"
@@ -351,6 +362,13 @@ export default function ClientTraining() {
               </div>
             )}
           </div>
+
+          <Pagination
+            page={knowledgePagination.page}
+            totalPages={knowledgePagination.totalPages}
+            onPageChange={knowledgePagination.setPage}
+            className="mt-4"
+          />
         </TabPanel>
       </Card>
     </div>

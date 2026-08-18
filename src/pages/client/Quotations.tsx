@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
-import { Button, Card, ErrorText, Input, TabPanel, Tabs, Textarea } from '../../components/ui';
+import { Button, Card, ErrorText, Input, Pagination, TabPanel, Tabs, Textarea } from '../../components/ui';
+import { usePagination } from '../../lib/usePagination';
 
 interface Template {
   id: string; service: string; startingPrice: string; templateText: string | null; paymentTerms: string | null; validityDays: number;
@@ -60,6 +61,8 @@ export default function ClientQuotations() {
     setError('');
     createTemplateMutation.mutate();
   }
+
+  const { page, setPage, totalPages, pageItems } = usePagination(quotations, 10);
 
   return (
     <div className="space-y-8 animate-glass-entrance">
@@ -191,7 +194,7 @@ export default function ClientQuotations() {
             Recent Generated Quotations ({quotations?.length ?? 0})
           </h2>
           <ul className="divide-y divide-slate-100 dark:divide-white/5">
-            {quotations?.map((q) => (
+            {pageItems.map((q) => (
               <li key={q.id} className="py-4 text-xs">
                 <p className="whitespace-pre-wrap leading-relaxed text-slate-800 dark:text-slate-200 font-medium">
                   {q.generatedText}
@@ -205,6 +208,8 @@ export default function ClientQuotations() {
               <li className="py-8 text-center text-xs text-slate-400">No quotation logs recorded yet.</li>
             )}
           </ul>
+
+          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} className="mt-4" />
         </Card>
       </TabPanel>
     </div>

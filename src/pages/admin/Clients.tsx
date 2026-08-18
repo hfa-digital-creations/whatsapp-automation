@@ -2,7 +2,9 @@ import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
-import { Badge, Button, Card, ErrorText, Input, Select, Spinner } from '../../components/ui';
+import { Badge, Button, Card, ErrorText, Input, Pagination, Select, Spinner } from '../../components/ui';
+
+const PAGE_SIZE = 25;
 
 interface Plan {
   id: string;
@@ -32,12 +34,19 @@ export default function AdminClients() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [showCreate, setShowCreate] = useState(false);
+  const [page, setPage] = useState(1);
 
   const { data, isLoading } = useQuery<{ items: ClientRow[]; total: number }>({
-    queryKey: ['admin-clients', search, status],
+    queryKey: ['admin-clients', search, status, page],
     queryFn: async () =>
-      (await api.get('/admin/clients', { params: { search: search || undefined, status: status || undefined } })).data.data,
+      (
+        await api.get('/admin/clients', {
+          params: { search: search || undefined, status: status || undefined, skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE },
+        })
+      ).data.data,
   });
+
+  const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / PAGE_SIZE));
 
   const { data: plans } = useQuery<Plan[]>({
     queryKey: ['admin-plans-active'],
@@ -186,11 +195,21 @@ export default function AdminClients() {
               <Input
                 placeholder="Search business, email, phone..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
                 className="pl-9"
               />
             </div>
-            <Select value={status} onChange={(e) => setStatus(e.target.value)} className="w-full sm:w-44">
+            <Select
+              value={status}
+              onChange={(e) => {
+                setStatus(e.target.value);
+                setPage(1);
+              }}
+              className="w-full sm:w-44"
+            >
               <option value="">All statuses</option>
               <option value="PENDING">Pending</option>
               <option value="ACTIVE">Active</option>
@@ -276,6 +295,8 @@ export default function AdminClients() {
             </table>
           </div>
         )}
+
+        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} className="mt-5" />
       </Card>
     </div>
   );

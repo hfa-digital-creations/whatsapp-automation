@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import { Badge, Card, Spinner } from '../../components/ui';
+import { Badge, Card, Pagination, Spinner } from '../../components/ui';
+import { usePagination } from '../../lib/usePagination';
 
 interface Account {
   id: string; sessionId: string; phoneNumber: string | null; displayName: string | null; status: string;
@@ -18,6 +19,8 @@ export default function AdminWhatsappAccounts() {
     queryFn: async () => (await api.get('/admin/whatsapp/accounts')).data.data,
     refetchInterval: 4000,
   });
+
+  const { page, setPage, totalPages, pageItems } = usePagination(accounts, 20);
 
   return (
     <div className="space-y-8 animate-glass-entrance">
@@ -46,7 +49,7 @@ export default function AdminWhatsappAccounts() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                {accounts?.map((a) => (
+                {pageItems.map((a) => (
                   <tr key={a.id}>
                     <td className="py-3.5 pr-4">
                       <p className="font-bold text-slate-800 dark:text-slate-100">{a.client.businessName}</p>
@@ -77,6 +80,8 @@ export default function AdminWhatsappAccounts() {
             </table>
           </div>
         )}
+
+        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} className="mt-5" />
       </Card>
     </div>
   );

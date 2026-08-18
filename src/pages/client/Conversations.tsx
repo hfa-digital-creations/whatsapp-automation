@@ -3,7 +3,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
 import { useMultiSelect } from '../../lib/useMultiSelect';
-import { Badge, Button, Card, ErrorText, Input, Spinner } from '../../components/ui';
+import { usePagination } from '../../lib/usePagination';
+import { Badge, Button, Card, ErrorText, Input, Pagination, Spinner } from '../../components/ui';
 
 interface Conversation {
   id: string; customerName: string | null; customerPhone: string; leadStatus: string; lastMessageAt: string | null;
@@ -46,6 +47,7 @@ export default function ClientConversations() {
   }, [searchParams]);
 
   const activeConversation = conversations?.find((c) => c.id === selectedId);
+  const { page, setPage, totalPages, pageItems } = usePagination(conversations, 20);
 
   function invalidateAll() {
     queryClient.invalidateQueries({ queryKey: ['client-conversations'] });
@@ -189,13 +191,13 @@ export default function ClientConversations() {
                 <span className="h-2 w-2 rounded-full bg-brand-500" />
                 Customer Threads ({conversations?.length ?? 0})
               </h2>
-              {!!conversations?.length && (
+              {pageItems.length > 0 && (
                 <label className="flex items-center gap-1.5 text-xs text-slate-400 font-medium cursor-pointer">
                   <input
                     type="checkbox"
                     className="h-3.5 w-3.5 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-                    checked={selected.size === conversations.length}
-                    onChange={() => toggleAll(conversations.map((c) => c.id))}
+                    checked={pageItems.every((c) => selected.has(c.id))}
+                    onChange={() => toggleAll(pageItems.map((c) => c.id))}
                   />
                   Select all
                 </label>
@@ -206,7 +208,7 @@ export default function ClientConversations() {
               <Spinner />
             ) : (
               <ul className="max-h-[520px] space-y-2 overflow-y-auto pr-1">
-                {conversations?.map((c) => (
+                {pageItems.map((c) => (
                   <li
                     key={c.id}
                     className={`flex items-start gap-2.5 rounded-xl p-3 transition-all duration-300 cursor-pointer ${
@@ -245,6 +247,8 @@ export default function ClientConversations() {
               </ul>
             )}
           </div>
+
+          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} className="mt-3" />
         </Card>
 
         {/* Right Column: Active Chat View (Full width on mobile when selected) */}

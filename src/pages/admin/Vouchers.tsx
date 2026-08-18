@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
-import { Badge, Button, Card, ErrorText, Input, Select, Spinner, Tabs } from '../../components/ui';
+import { Badge, Button, Card, ErrorText, Input, Pagination, Select, Spinner, Tabs } from '../../components/ui';
+import { usePagination } from '../../lib/usePagination';
 
 interface Voucher {
   id: string; code: string; discountType: string; discountValue: string; maxUsage: number | null;
@@ -60,6 +61,8 @@ export default function AdminVouchers() {
     if (activeFilter === 'ALL') return true;
     return v.status === activeFilter;
   });
+
+  const { page, setPage, totalPages, pageItems } = usePagination(filteredVouchers, 15);
 
   return (
     <div className="space-y-8 animate-glass-entrance">
@@ -136,7 +139,7 @@ export default function AdminVouchers() {
             { id: 'INACTIVE', label: 'Inactive / Expired', count: vouchers?.filter((v) => v.status === 'INACTIVE').length ?? 0 },
           ]}
           activeTab={activeFilter}
-          onChange={(f) => setActiveFilter(f as any)}
+          onChange={(f) => { setActiveFilter(f as any); setPage(1); }}
         />
       </div>
 
@@ -158,7 +161,7 @@ export default function AdminVouchers() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                {filteredVouchers?.map((v) => (
+                {pageItems.map((v) => (
                   <tr key={v.id}>
                     <td className="py-3.5 pr-4">
                       <span className="font-mono font-bold text-brand-600 dark:text-brand-400 bg-brand-500/10 px-2.5 py-1 rounded-lg border border-brand-500/20">
@@ -199,6 +202,8 @@ export default function AdminVouchers() {
             </table>
           </div>
         )}
+
+        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} className="mt-5" />
       </Card>
     </div>
   );

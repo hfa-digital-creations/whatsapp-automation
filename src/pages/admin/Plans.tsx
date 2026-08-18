@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
-import { Badge, Button, Card, ErrorText, Input, Select, TabPanel, Tabs, Textarea } from '../../components/ui';
+import { Badge, Button, Card, ErrorText, Input, Pagination, Select, TabPanel, Tabs, Textarea } from '../../components/ui';
+import { usePagination } from '../../lib/usePagination';
 
 interface Feature { id: string; code: string; name: string; }
 interface Plan {
@@ -127,6 +128,8 @@ export default function AdminPlans() {
     return p.status === activeFilter;
   });
 
+  const { page, setPage, totalPages, pageItems } = usePagination(filteredPlans, 12);
+
   return (
     <div className="space-y-8 animate-glass-entrance">
       {/* Header */}
@@ -245,13 +248,13 @@ export default function AdminPlans() {
             { id: 'INACTIVE', label: 'Inactive / Drafts', count: plans?.filter((p) => p.status === 'INACTIVE').length ?? 0 },
           ]}
           activeTab={activeFilter}
-          onChange={(f) => setActiveFilter(f as any)}
+          onChange={(f) => { setActiveFilter(f as any); setPage(1); }}
         />
       </div>
 
       {/* Plan Cards Grid */}
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 animate-tab-content">
-        {filteredPlans?.map((plan) => (
+        {pageItems.map((plan) => (
           <Card key={plan.id} hoverEffect className="flex flex-col justify-between p-6">
             <div>
               <div className="flex items-start justify-between">
@@ -308,6 +311,8 @@ export default function AdminPlans() {
           </div>
         )}
       </div>
+
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>
   );
 }

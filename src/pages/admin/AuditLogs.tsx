@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../../lib/api';
-import { Card, Spinner } from '../../components/ui';
+import { Card, Pagination, Spinner } from '../../components/ui';
+import { usePagination } from '../../lib/usePagination';
 
 interface LogEntry {
   id: string; action: string; targetType: string | null; targetId: string | null;
@@ -12,6 +13,8 @@ export default function AdminAuditLogs() {
     queryKey: ['admin-audit-logs'],
     queryFn: async () => (await api.get('/admin/audit-logs')).data.data,
   });
+
+  const { page, setPage, totalPages, pageItems } = usePagination(logs, 20);
 
   return (
     <div className="space-y-8 animate-glass-entrance">
@@ -40,7 +43,7 @@ export default function AdminAuditLogs() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                {logs?.map((l) => (
+                {pageItems.map((l) => (
                   <tr key={l.id}>
                     <td className="py-3.5 pr-4 text-xs font-mono text-slate-500 dark:text-slate-400">
                       {new Date(l.createdAt).toLocaleString()}
@@ -69,6 +72,8 @@ export default function AdminAuditLogs() {
             </table>
           </div>
         )}
+
+        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} className="mt-5" />
       </Card>
     </div>
   );

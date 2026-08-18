@@ -239,6 +239,45 @@ export function Tabs<T extends string>({
 }
 
 
+export function Pagination({
+  page,
+  totalPages,
+  onPageChange,
+  className = '',
+}: {
+  page: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+  className?: string;
+}) {
+  if (totalPages <= 1) return null;
+  return (
+    <div className={`flex items-center justify-between gap-3 border-t border-slate-200/60 pt-4 dark:border-white/10 ${className}`}>
+      <Button
+        type="button"
+        variant="secondary"
+        className="text-xs px-3 py-1.5 min-h-0"
+        disabled={page <= 1}
+        onClick={() => onPageChange(page - 1)}
+      >
+        &larr; Prev
+      </Button>
+      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+        Page {page} of {totalPages}
+      </span>
+      <Button
+        type="button"
+        variant="secondary"
+        className="text-xs px-3 py-1.5 min-h-0"
+        disabled={page >= totalPages}
+        onClick={() => onPageChange(page + 1)}
+      >
+        Next &rarr;
+      </Button>
+    </div>
+  );
+}
+
 export function TabPanel({
   id,
   activeTab,

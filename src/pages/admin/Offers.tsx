@@ -1,7 +1,8 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
-import { Badge, Button, Card, ErrorText, Input, Select, Spinner, Tabs, Textarea } from '../../components/ui';
+import { Badge, Button, Card, ErrorText, Input, Pagination, Select, Spinner, Tabs, Textarea } from '../../components/ui';
+import { usePagination } from '../../lib/usePagination';
 
 type OfferMediaType = 'IMAGE' | 'VIDEO' | 'DOCUMENT';
 
@@ -559,11 +560,14 @@ function TrashPanel({ onError }: { onError: (msg: string) => void }) {
     onError: (err) => onError(apiErrorMessage(err)),
   });
 
+  const { page, setPage, totalPages, pageItems } = usePagination(trashed, 10);
+
   if (isLoading) return <Spinner />;
 
   return (
-    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 animate-tab-content">
-      {trashed?.map((c) => (
+    <div className="animate-tab-content space-y-5">
+    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+      {pageItems.map((c) => (
         <Card key={c.id} className="p-6 flex flex-col justify-between opacity-80">
           <div>
             <div className="flex items-start justify-between gap-2">
@@ -614,6 +618,8 @@ function TrashPanel({ onError }: { onError: (msg: string) => void }) {
       {trashed?.length === 0 && (
         <div className="col-span-full py-12 text-center text-sm text-slate-400">Trash is empty.</div>
       )}
+    </div>
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>
   );
 }
@@ -956,6 +962,8 @@ export default function AdminOffers() {
     return c.status !== 'COMPLETED';
   });
 
+  const campaignsPagination = usePagination(filteredCampaigns, 10);
+
   return (
     <div className="space-y-8 animate-glass-entrance">
       {/* Header */}
@@ -1159,7 +1167,7 @@ export default function AdminOffers() {
             { id: 'TRASH', label: 'Trash', count: trashedCampaigns?.length ?? 0 },
           ]}
           activeTab={activeFilter}
-          onChange={(f) => setActiveFilter(f as any)}
+          onChange={(f) => { setActiveFilter(f as any); campaignsPagination.setPage(1); }}
         />
       </div>
 
@@ -1171,7 +1179,7 @@ export default function AdminOffers() {
         <Spinner />
       ) : (
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 animate-tab-content">
-          {filteredCampaigns?.map((c) => (
+          {campaignsPagination.pageItems.map((c) => (
             <Card key={c.id} hoverEffect className="p-6 flex flex-col justify-between">
               <div>
                 <div className="flex items-start justify-between gap-2">
@@ -1272,6 +1280,10 @@ export default function AdminOffers() {
             </div>
           )}
         </div>
+      )}
+
+      {activeFilter !== 'CONTACTS' && activeFilter !== 'TRASH' && (
+        <Pagination page={campaignsPagination.page} totalPages={campaignsPagination.totalPages} onPageChange={campaignsPagination.setPage} />
       )}
     </div>
   );

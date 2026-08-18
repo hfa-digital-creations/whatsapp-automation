@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
 import { useMultiSelect } from '../../lib/useMultiSelect';
-import { Button, Card, ErrorText, Spinner } from '../../components/ui';
+import { usePagination } from '../../lib/usePagination';
+import { Button, Card, ErrorText, Pagination, Spinner } from '../../components/ui';
 
 interface TrashedContact {
   conversationId: string;
@@ -69,6 +70,8 @@ export default function ClientTrash() {
     },
     onError: (err) => setError(apiErrorMessage(err)),
   });
+
+  const { page, setPage, totalPages, pageItems } = usePagination(trashed, 20);
 
   return (
     <div className="space-y-8">
@@ -138,8 +141,8 @@ export default function ClientTrash() {
                     <input
                       type="checkbox"
                       className="h-3.5 w-3.5 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-                      checked={!!trashed?.length && selected.size === trashed.length}
-                      onChange={() => toggleAll(trashed?.map((t) => t.conversationId) ?? [])}
+                      checked={pageItems.length > 0 && pageItems.every((t) => selected.has(t.conversationId))}
+                      onChange={() => toggleAll(pageItems.map((t) => t.conversationId))}
                     />
                   </th>
                   <th className="py-3 pr-4">Contact</th>
@@ -149,7 +152,7 @@ export default function ClientTrash() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                {trashed?.map((t) => (
+                {pageItems.map((t) => (
                   <tr key={t.conversationId} className="align-top">
                     <td className="py-3.5 pr-2">
                       <input
@@ -213,6 +216,8 @@ export default function ClientTrash() {
             </table>
           </div>
         )}
+
+        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} className="mt-5" />
       </Card>
     </div>
   );

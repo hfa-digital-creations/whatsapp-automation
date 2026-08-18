@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
-import { Badge, Button, Card, ErrorText, Select, Spinner, Tabs, Textarea } from '../../components/ui';
+import { Badge, Button, Card, ErrorText, Pagination, Select, Spinner, Tabs, Textarea } from '../../components/ui';
+import { usePagination } from '../../lib/usePagination';
 
 interface Enquiry {
   id: string; name: string; phone: string; email: string | null; businessName: string | null;
@@ -95,6 +96,8 @@ export default function AdminEnquiries() {
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
+  const { page, setPage, totalPages, pageItems } = usePagination(enquiries, 10);
+
   return (
     <div className="space-y-8 animate-glass-entrance">
       {/* Header */}
@@ -120,7 +123,7 @@ export default function AdminEnquiries() {
             { id: 'CLOSED', label: 'Closed' },
           ]}
           activeTab={status}
-          onChange={(tab) => setStatus(tab)}
+          onChange={(tab) => { setStatus(tab); setPage(1); }}
         />
       </div>
 
@@ -130,7 +133,7 @@ export default function AdminEnquiries() {
         <Spinner />
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 animate-tab-content">
-          {enquiries?.map((e) => (
+          {pageItems.map((e) => (
 
             <Card key={e.id} hoverEffect className="p-6 flex flex-col justify-between">
               <div>
@@ -229,6 +232,8 @@ export default function AdminEnquiries() {
           )}
         </div>
       )}
+
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>
   );
 }

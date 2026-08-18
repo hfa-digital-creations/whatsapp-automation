@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
-import { Button, Card, ErrorText, Input, Spinner } from '../../components/ui';
+import { Button, Card, ErrorText, Input, Pagination, Spinner } from '../../components/ui';
+import { usePagination } from '../../lib/usePagination';
 
 interface Feature { id: string; code: string; name: string; description?: string; }
 
@@ -36,6 +37,8 @@ export default function AdminFeatures() {
     setError('');
     createMutation.mutate();
   }
+
+  const { page, setPage, totalPages, pageItems } = usePagination(features, 15);
 
   return (
     <div className="space-y-8 animate-glass-entrance">
@@ -94,7 +97,7 @@ export default function AdminFeatures() {
           <Spinner />
         ) : (
           <ul className="divide-y divide-slate-100 dark:divide-white/5">
-            {features?.map((f) => (
+            {pageItems.map((f) => (
               <li key={f.id} className="flex items-center justify-between py-3.5 text-xs">
                 <div>
                   <div className="flex items-center gap-2">
@@ -113,6 +116,8 @@ export default function AdminFeatures() {
             {features?.length === 0 && <li className="py-8 text-center text-xs text-slate-400">No features registered yet.</li>}
           </ul>
         )}
+
+        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} className="mt-4" />
       </Card>
     </div>
   );

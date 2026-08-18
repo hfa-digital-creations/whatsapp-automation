@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
-import { Badge, Button, Card, ErrorText, Input, Select, Spinner, Tabs } from '../../components/ui';
+import { Badge, Button, Card, ErrorText, Input, Pagination, Select, Spinner, Tabs } from '../../components/ui';
+import { usePagination } from '../../lib/usePagination';
 
 interface StaffUser {
   id: string;
@@ -72,6 +73,8 @@ export default function AdminUsers() {
     if (activeFilter === 'ALL') return true;
     return u.role === activeFilter;
   });
+
+  const { page, setPage, totalPages, pageItems } = usePagination(filteredStaff, 15);
 
   return (
     <div className="space-y-8 animate-glass-entrance">
@@ -149,7 +152,7 @@ export default function AdminUsers() {
             { id: 'ADMIN', label: 'Standard Admins', count: data?.items?.length ?? 0 },
           ]}
           activeTab={activeFilter}
-          onChange={(f) => setActiveFilter(f as any)}
+          onChange={(f) => { setActiveFilter(f as any); setPage(1); }}
         />
       </div>
 
@@ -171,7 +174,7 @@ export default function AdminUsers() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                {filteredStaff.map((u) => (
+                {pageItems.map((u) => (
                   <tr key={u.id}>
                     <td className="py-3.5 pr-4 font-semibold text-slate-800 dark:text-slate-100">{u.email}</td>
                     <td className="py-3.5 pr-4 text-xs font-mono text-slate-500 dark:text-slate-400">{u.phone ?? '—'}</td>
@@ -224,6 +227,8 @@ export default function AdminUsers() {
             </table>
           </div>
         )}
+
+        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} className="mt-5" />
       </Card>
     </div>
   );
