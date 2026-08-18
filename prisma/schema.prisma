@@ -709,6 +709,12 @@ model PlatformSettings {
   /// 24-hour "HH:mm" server-local time — the daily digest (admin + client) withholds
   /// today's figures until this time, so nobody sees a half-finished day's numbers.
   dailyDigestTime String   @default("09:00")
+  /// WhatsApp number (digits, with country code) to push the admin's full daily digest
+  /// report to at dailyDigestTime, via the system WhatsApp session. Blank disables sending.
+  dailyDigestWhatsappNumber String?
+  /// "YYYY-MM-DD" (server-local) of the last date the report was actually sent —
+  /// dedupe guard so the periodic check job never sends the same day's report twice.
+  dailyDigestLastSentDate   String?
   updatedAt       DateTime @updatedAt
 }
 

@@ -50,8 +50,11 @@ export class PlatformSettingsService {
     });
   }
 
-  async updateDigestTime(dailyDigestTime: string) {
+  async updateDigestSettings(dailyDigestTime: string, dailyDigestWhatsappNumber: string | undefined) {
     const settings = await this.get();
-    return this.prisma.platformSettings.update({ where: { id: settings.id }, data: { dailyDigestTime } });
+    return this.prisma.platformSettings.update({
+      where: { id: settings.id },
+      data: { dailyDigestTime, dailyDigestWhatsappNumber: dailyDigestWhatsappNumber || null },
+    });
   }
 }

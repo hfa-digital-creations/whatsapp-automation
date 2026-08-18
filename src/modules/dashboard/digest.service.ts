@@ -1,7 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { EnquiryStatus, LeadStatus, MessageStatus, PaymentStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
+import { WhatsappSessionManagerService } from '../whatsapp/whatsapp-session-manager.service';
+import { SYSTEM_WHATSAPP_SESSION_ID } from '../../common/constants';
 
 // A lead with no update in this long is treated as needing a follow-up nudge in the digest.
 const STALE_LEAD_MS = 2 * 24 * 60 * 60 * 1000;
@@ -19,6 +21,12 @@ function endOfToday(): Date {
   return d;
 }
 
+/** Server-local "YYYY-MM-DD" — used only as a same-day dedupe key, never parsed back to a Date. */
+function todayKey(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 interface DigestNotReady {
   ready: false;
   availableAt: string;
@@ -31,9 +39,12 @@ interface DigestNotReady {
  */
 @Injectable()
 export class DigestService {
+  private readonly logger = new Logger(DigestService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly settings: PlatformSettingsService,
+    private readonly sessionManager: WhatsappSessionManagerService,
   ) {}
 
   private async readiness(): Promise<{ ready: boolean; availableAt: string }> {
@@ -47,7 +58,10 @@ export class DigestService {
   async getAdminDigest() {
     const { ready, availableAt } = await this.readiness();
     if (!ready) return { ready: false, availableAt } satisfies DigestNotReady;
+    return this.buildAdminDigest();
+  }
 
+  private async buildAdminDigest() {
     const todayStart = startOfToday();
     const todayEnd = endOfToday();
     const soon = new Date(todayEnd);
@@ -154,5 +168,63 @@ export class DigestService {
       quotationsToday,
       renewalDueSoon,
     };
+  }
+
+  /**
+   * Called on a periodic check (every few minutes, see DigestSenderProcessor) rather than a
+   * single fixed-time cron — dailyDigestTime is admin-configurable at runtime, so instead of
+   * re-registering a BullMQ repeatable job on every settings change, this just checks "is it
+   * past today's configured time, and have we not already sent today's report" on each tick.
+   * dailyDigestLastSentDate is the dedupe guard against sending the same day's report twice.
+   */
+  async sendDailyReportIfDue(): Promise<void> {
+    const settings = await this.settings.get();
+    if (!settings.dailyDigestWhatsappNumber) return;
+    if (settings.dailyDigestLastSentDate === todayKey()) return;
+
+    const { ready } = await this.readiness();
+    if (!ready) return;
+
+    const digest = await this.buildAdminDigest();
+    const message = this.formatDigestMessage(digest);
+    const sent = await this.sessionManager.sendMessage(SYSTEM_WHATSAPP_SESSION_ID, settings.dailyDigestWhatsappNumber, message);
+    if (!sent) {
+      this.logger.warn(`Failed to send daily digest report to ${settings.dailyDigestWhatsappNumber} — will retry on the next check.`);
+      return;
+    }
+
+    await this.prisma.platformSettings.update({ where: { id: settings.id }, data: { dailyDigestLastSentDate: todayKey() } });
+    this.logger.log(`Daily digest report sent to ${settings.dailyDigestWhatsappNumber}.`);
+  }
+
+  private formatDigestMessage(digest: Awaited<ReturnType<DigestService['buildAdminDigest']>>): string {
+    const dateLabel = digest.generatedAt.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const lines: string[] = [`📊 *Daily Digest — ${dateLabel}*`, ''];
+
+    lines.push(`🆕 *New Enquiries Today:* ${digest.newEnquiries.count}`);
+    for (const e of digest.newEnquiries.items) lines.push(`   • ${e.name} (${e.phone})`);
+
+    lines.push('', `⏰ *Needing Follow-up:* ${digest.followUpNeeded.count}`);
+    for (const e of digest.followUpNeeded.items) lines.push(`   • ${e.name} (${e.phone})`);
+
+    lines.push(
+      '',
+      `📅 *Renewals Due Today:* ${digest.renewalsDueToday.count}`,
+    );
+    for (const c of digest.renewalsDueToday.items) lines.push(`   • ${c.businessName}`);
+    lines.push(`📅 *Renewals Due in 7 Days:* ${digest.renewalsDueSoon}`);
+
+    lines.push(
+      '',
+      `💰 *Payments Today:* ${digest.paymentsToday.count} (₹${Number(digest.paymentsToday.total).toLocaleString('en-IN')})`,
+    );
+    for (const p of digest.paymentsToday.items) lines.push(`   • ${p.businessName}: ₹${Number(p.amount).toLocaleString('en-IN')}`);
+
+    lines.push('', `✨ *New Clients Today:* ${digest.newClientsToday.count}`);
+    for (const c of digest.newClientsToday.items) lines.push(`   • ${c.businessName}`);
+
+    lines.push('', `📝 *Drafts Awaiting Approval (all clients):* ${digest.pendingDraftsAcrossClients}`);
+
+    return lines.join('\n');
   }
 }

@@ -6,7 +6,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { PlatformSettingsService } from './platform-settings.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
-import { UpdateDigestTimeDto } from './dto/update-digest-time.dto';
+import { UpdateDigestSettingsDto } from './dto/update-digest-settings.dto';
 
 const MAX_FAVICON_BYTES = 1 * 1024 * 1024;
 
@@ -40,17 +40,19 @@ export class PlatformSettingsController {
     return settings;
   }
 
-  /** The time (24h HH:mm, server-local) the daily digest becomes visible each day — shared by admin and client panels alike. */
+  /** The time (24h HH:mm, server-local) the daily digest becomes visible each day — shared by admin
+   * and client panels alike — plus the WhatsApp number (optional) the admin's full report gets pushed
+   * to at that time. Blank number disables the WhatsApp send; the in-app digest cards are unaffected. */
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-  @Patch('admin/settings/digest-time')
-  async updateDigestTime(@Body() dto: UpdateDigestTimeDto, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
-    const settings = await this.settingsService.updateDigestTime(dto.dailyDigestTime);
+  @Patch('admin/settings/digest')
+  async updateDigestSettings(@Body() dto: UpdateDigestSettingsDto, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
+    const settings = await this.settingsService.updateDigestSettings(dto.dailyDigestTime, dto.dailyDigestWhatsappNumber);
     await this.auditLogService.record({
       adminId: admin.userId,
-      action: 'PLATFORM_DIGEST_TIME_UPDATED',
+      action: 'PLATFORM_DIGEST_SETTINGS_UPDATED',
       targetType: 'PlatformSettings',
       targetId: settings.id,
-      metadata: { dailyDigestTime: dto.dailyDigestTime },
+      metadata: { dailyDigestTime: dto.dailyDigestTime, dailyDigestWhatsappNumber: dto.dailyDigestWhatsappNumber ?? null },
       ipAddress: req.ip,
     });
     return settings;
