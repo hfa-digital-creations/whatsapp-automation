@@ -1,10 +1,11 @@
-import { useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
-import { Button, Card, ErrorText, Spinner } from '../../components/ui';
+import { Button, Card, ErrorText, Input, Label, Spinner } from '../../components/ui';
 
 interface PlatformSettings {
   faviconUrl: string | null;
+  dailyDigestTime: string;
   updatedAt: string;
 }
 
@@ -43,6 +44,20 @@ export default function AdminSettings() {
 
   const faviconPreviewUrl = settings?.faviconUrl ? `${settings.faviconUrl}?v=${encodeURIComponent(settings.updatedAt)}` : null;
 
+  const [digestTime, setDigestTime] = useState('09:00');
+  useEffect(() => {
+    if (settings?.dailyDigestTime) setDigestTime(settings.dailyDigestTime);
+  }, [settings?.dailyDigestTime]);
+
+  const digestTimeMutation = useMutation({
+    mutationFn: (dailyDigestTime: string) => api.patch('/admin/settings/digest-time', { dailyDigestTime }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-platform-settings'] });
+      setError('');
+    },
+    onError: (err) => setError(apiErrorMessage(err)),
+  });
+
   return (
     <div className="space-y-8 animate-glass-entrance">
       <div>
@@ -77,6 +92,34 @@ export default function AdminSettings() {
         )}
 
         <ErrorText>{error}</ErrorText>
+      </Card>
+
+      <Card className="max-w-lg p-6">
+        <h2 className="mb-1 text-sm font-bold text-slate-800 dark:text-slate-100">Daily Digest Time</h2>
+        <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
+          The admin and client dashboards withhold today's figures (enquiries, follow-ups needed, renewals, payments,
+          leads, drafts) until this time each day, so nobody sees a half-finished day's numbers.
+        </p>
+
+        {isLoading ? (
+          <Spinner />
+        ) : (
+          <form
+            className="flex items-end gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              digestTimeMutation.mutate(digestTime);
+            }}
+          >
+            <div>
+              <Label>Time (24-hour, server time)</Label>
+              <Input type="time" value={digestTime} onChange={(e) => setDigestTime(e.target.value)} required className="w-36" />
+            </div>
+            <Button type="submit" disabled={digestTimeMutation.isPending} className="text-xs">
+              {digestTimeMutation.isPending ? 'Saving...' : 'Save'}
+            </Button>
+          </form>
+        )}
       </Card>
     </div>
   );

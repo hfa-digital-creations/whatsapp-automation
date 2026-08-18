@@ -7,6 +7,66 @@ const STATUS_TONE: Record<string, 'gray' | 'green' | 'red' | 'amber' | 'blue'> =
   ACTIVE: 'green', EXPIRING_SOON: 'amber', EXPIRED: 'red', NOT_ACTIVATED: 'gray',
 };
 
+interface ClientDigest {
+  ready: boolean;
+  availableAt?: string;
+  newConversationsToday?: { count: number };
+  newLeadsToday?: number;
+  followUpNeeded?: { count: number; items: { id: string; name: string | null; phone: string | null }[] };
+  messagesToday?: number;
+  pendingDrafts?: number;
+  quotationsToday?: number;
+  renewalDueSoon?: { dueOn: string } | null;
+}
+
+function DigestStat({ label, value, tone }: { label: string; value: number; tone: 'gray' | 'green' | 'red' | 'amber' | 'blue' }) {
+  return (
+    <div className="flex items-center justify-between rounded-xl bg-white/40 p-2.5 text-xs dark:bg-white/[0.02]">
+      <span className="font-semibold text-slate-700 dark:text-slate-200">{label}</span>
+      <Badge tone={tone}>{value}</Badge>
+    </div>
+  );
+}
+
+function ClientDailyDigestCard() {
+  const { data, isLoading } = useQuery<ClientDigest>({
+    queryKey: ['client-digest'],
+    queryFn: async () => (await api.get('/client/dashboard/digest')).data.data,
+  });
+
+  return (
+    <Card className="p-6">
+      <h2 className="mb-3.5 text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 border-b border-slate-200/60 pb-3 dark:border-white/10">
+        <span className="h-2 w-2 rounded-full bg-purple-500" />
+        Today's Digest
+      </h2>
+
+      {isLoading || !data ? (
+        <Spinner />
+      ) : !data.ready ? (
+        <p className="py-6 text-center text-xs text-slate-400">
+          Today's figures will be ready at <span className="font-semibold text-slate-600 dark:text-slate-300">{data.availableAt}</span>.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          <DigestStat label="New Conversations Today" value={data.newConversationsToday?.count ?? 0} tone="blue" />
+          <DigestStat label="New Leads Today" value={data.newLeadsToday ?? 0} tone="green" />
+          <DigestStat label="Needing Follow-up" value={data.followUpNeeded?.count ?? 0} tone="amber" />
+          <DigestStat label="Messages Today" value={data.messagesToday ?? 0} tone="gray" />
+          <DigestStat label="Drafts Awaiting Approval" value={data.pendingDrafts ?? 0} tone="amber" />
+          <DigestStat label="Quotations Today" value={data.quotationsToday ?? 0} tone="blue" />
+          {data.renewalDueSoon && (
+            <div className="flex items-center justify-between rounded-xl bg-rose-500/10 p-2.5 text-xs">
+              <span className="font-semibold text-rose-700 dark:text-rose-300">Your Renewal Is Due</span>
+              <span className="font-bold text-rose-700 dark:text-rose-300">{new Date(data.renewalDueSoon.dueOn).toLocaleDateString()}</span>
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export default function ClientDashboard() {
   const { data: profile, isLoading } = useQuery({
     queryKey: ['client-profile'],
@@ -21,6 +81,11 @@ export default function ClientDashboard() {
   const { data: limitData } = useQuery<{ limit: number }>({
     queryKey: ['client-whatsapp-limit'],
     queryFn: async () => (await api.get('/client/whatsapp/limit')).data.data,
+  });
+
+  const { data: features } = useQuery<Record<string, boolean>>({
+    queryKey: ['client-features'],
+    queryFn: async () => (await api.get('/client/features')).data.data,
   });
 
   if (isLoading || !profile) return <Spinner />;
@@ -156,6 +221,8 @@ export default function ClientDashboard() {
           </div>
         </Card>
       </div>
+
+      {features?.['DAILY_DIGEST'] && <ClientDailyDigestCard />}
 
       {/* Feature Navigation Glass Hub */}
       <Card className="p-6">

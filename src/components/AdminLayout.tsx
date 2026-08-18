@@ -139,7 +139,7 @@ export function AdminLayout() {
       <ParticlesBackground />
 
       {/* Desktop Frosted Glass Sidebar */}
-      <aside className="hidden w-64 shrink-0 flex-col glass-sidebar z-30 md:flex">
+      <aside className="hidden w-64 shrink-0 flex-col glass-sidebar z-30 md:flex md:sticky md:top-0 md:h-screen">
         <div className="flex h-16 items-center gap-3 px-6 border-b border-slate-200/50 dark:border-white/5">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-brand-600 to-amber-400 text-white shadow-lg shadow-brand-500/30 ring-2 ring-white/20">
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">

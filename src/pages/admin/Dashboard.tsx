@@ -3,6 +3,73 @@ import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { Badge, Card, Spinner } from '../../components/ui';
 
+interface DigestItem { id: string; name?: string | null; phone?: string | null; businessName?: string; amount?: string | number }
+interface Digest {
+  ready: boolean;
+  availableAt?: string;
+  generatedAt?: string;
+  newEnquiries?: { count: number; items: DigestItem[] };
+  followUpNeeded?: { count: number; items: DigestItem[] };
+  renewalsDueToday?: { count: number; items: DigestItem[] };
+  renewalsDueSoon?: number;
+  paymentsToday?: { count: number; total: string | number; items: DigestItem[] };
+  newClientsToday?: { count: number; items: DigestItem[] };
+  pendingDraftsAcrossClients?: number;
+}
+
+function DigestRow({ label, value, tone }: { label: string; value: number; tone: 'gray' | 'green' | 'red' | 'amber' | 'blue' }) {
+  return (
+    <div className="flex items-center justify-between rounded-xl bg-white/40 p-2.5 text-xs dark:bg-white/[0.02]">
+      <span className="font-semibold text-slate-700 dark:text-slate-200">{label}</span>
+      <Badge tone={tone}>{value}</Badge>
+    </div>
+  );
+}
+
+function DailyDigestCard() {
+  const { data, isLoading } = useQuery<Digest>({
+    queryKey: ['admin-digest'],
+    queryFn: async () => (await api.get('/admin/dashboard/digest')).data.data,
+  });
+
+  return (
+    <Card className="p-6">
+      <div className="flex items-center justify-between border-b border-slate-200/60 pb-3 dark:border-white/10">
+        <h2 className="text-sm font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-purple-500" />
+          Today's Digest
+        </h2>
+        <Link to="/admin/settings" className="text-xs font-semibold text-brand-600 dark:text-brand-400 hover:underline">
+          Change time
+        </Link>
+      </div>
+
+      {isLoading || !data ? (
+        <Spinner />
+      ) : !data.ready ? (
+        <p className="mt-3.5 py-6 text-center text-xs text-slate-400">
+          Today's figures will be ready at <span className="font-semibold text-slate-600 dark:text-slate-300">{data.availableAt}</span>.
+        </p>
+      ) : (
+        <div className="mt-3.5 space-y-2">
+          <DigestRow label="New Enquiries Today" value={data.newEnquiries?.count ?? 0} tone="blue" />
+          <DigestRow label="Needing Follow-up" value={data.followUpNeeded?.count ?? 0} tone="amber" />
+          <DigestRow label="Renewals Due Today" value={data.renewalsDueToday?.count ?? 0} tone="red" />
+          <DigestRow label="Renewals Due (7d)" value={data.renewalsDueSoon ?? 0} tone="amber" />
+          <DigestRow label="New Clients Today" value={data.newClientsToday?.count ?? 0} tone="green" />
+          <DigestRow label="Pending Drafts (all clients)" value={data.pendingDraftsAcrossClients ?? 0} tone="gray" />
+          <div className="flex items-center justify-between rounded-xl bg-emerald-500/10 p-2.5 text-xs">
+            <span className="font-semibold text-emerald-700 dark:text-emerald-300">Payments Today</span>
+            <span className="font-bold text-emerald-700 dark:text-emerald-300">
+              {data.paymentsToday?.count ?? 0} · ₹{Number(data.paymentsToday?.total ?? 0).toLocaleString('en-IN')}
+            </span>
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 interface Stats {
   totalClients: number;
   activeClients: number;
@@ -176,6 +243,8 @@ export default function AdminDashboard() {
 
       {/* Activity Glass Panels Grid */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <DailyDigestCard />
+
         {/* Recent Activations */}
         <Card className="p-6">
           <div className="flex items-center justify-between border-b border-slate-200/60 pb-3 dark:border-white/10">

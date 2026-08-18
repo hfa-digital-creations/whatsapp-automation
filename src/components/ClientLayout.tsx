@@ -134,7 +134,7 @@ export function ClientLayout() {
       <ParticlesBackground />
 
       {/* Desktop Frosted Glass Sidebar */}
-      <aside className="hidden w-64 shrink-0 flex-col glass-sidebar z-30 md:flex">
+      <aside className="hidden w-64 shrink-0 flex-col glass-sidebar z-30 md:flex md:sticky md:top-0 md:h-screen">
         <div className="flex h-16 items-center gap-3 px-6 border-b border-slate-200/50 dark:border-white/5">
           {branding?.logoUrl ? (
             <img src={branding.logoUrl} alt="Logo" className="h-8 w-8 rounded-xl object-cover shadow-sm ring-1 ring-white/20" />
