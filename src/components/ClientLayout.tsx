@@ -121,7 +121,7 @@ export function ClientLayout() {
   const primaryColor = branding?.primaryColor ?? '#F97316';
 
   return (
-    <div className="relative min-h-screen bg-slate-100/80 text-slate-900 dark:bg-slate-950 dark:text-slate-100 flex overflow-x-hidden">
+    <div className="relative h-screen bg-slate-100/80 text-slate-900 dark:bg-slate-950 dark:text-slate-100 flex overflow-hidden">
       {/* Ambient Animated Glow Mesh Blobs */}
       <div className="glass-bg-mesh">
         <div className="glass-blob-1" />
@@ -253,9 +253,9 @@ export function ClientLayout() {
       )}
 
       {/* Main Content Area */}
-      <div className="relative z-10 flex min-h-screen flex-1 flex-col overflow-hidden">
+      <div className="relative z-10 flex h-screen flex-1 flex-col overflow-hidden">
         {/* Frosted Floating Header */}
-        <header className="glass-header flex h-16 items-center justify-between px-4 md:px-8">
+        <header className="glass-header flex h-16 shrink-0 items-center justify-between px-4 md:px-8">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setMobileOpen(true)}
@@ -310,8 +310,8 @@ export function ClientLayout() {
           </div>
         </header>
 
-        {/* Content Viewport */}
-        <main key={location.pathname} className="flex-1 p-3.5 sm:p-6 md:p-8 max-w-7xl w-full mx-auto animate-page-transition">
+        {/* Content Viewport — the only part of the app shell that scrolls */}
+        <main key={location.pathname} className="flex-1 overflow-y-auto p-3.5 sm:p-6 md:p-8 max-w-7xl w-full mx-auto animate-page-transition">
           <Outlet />
         </main>
       </div>
