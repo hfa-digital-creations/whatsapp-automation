@@ -129,6 +129,19 @@ Their message: ${enquiry.message ?? '(no message provided)'}`;
       return;
     }
 
+    try {
+      await this.replyToEnquiry(enquiry, event);
+    } catch (err: any) {
+      // This ran fully unguarded before — any throw here (history fetch, prompt build,
+      // etc.) silently dropped the whole reply with nothing sent and nothing logged
+      // beyond a bare unhandledRejection, since `@OnEvent` listeners fire-and-forget.
+      // Logging it explicitly turns a silent "why didn't the prospect get a reply?"
+      // into something actually debuggable.
+      this.logger.error(`Enquiry auto-reply crashed for enquiry ${enquiry.id}: ${err.message}`, err.stack);
+    }
+  }
+
+  private async replyToEnquiry(enquiry: Enquiry, event: WhatsappMessageReceivedEvent) {
     await this.recordMessage(enquiry.id, MessageDirection.INBOUND, event.body);
 
     const [systemPrompt, history] = await Promise.all([

@@ -1,7 +1,7 @@
 import { AutomationMode, MessageDirection, MessageStatus } from '@prisma/client';
 import { AutomationEngineService } from './automation-engine.service';
 
-const EVENT = { sessionId: 'wa_session-1', fromPhone: '911234567890', customerName: 'Priya', body: 'Hi, what are your prices?' };
+const EVENT = { sessionId: 'wa_session-1', fromPhone: '911234567890', resolvedPhone: null, customerName: 'Priya', body: 'Hi, what are your prices?' };
 
 const BASE_CLIENT = {
   id: 'client-1',

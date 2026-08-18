@@ -122,6 +122,34 @@ export class AutomationEngineService {
       return;
     }
 
+    try {
+      await this.generateAndDeliverReply(client, account, conversation, event);
+    } catch (err: any) {
+      // Every step from here on (knowledge lookup, prompt building, the AI call itself,
+      // history fetch) was previously unguarded — a single throw anywhere in that chain
+      // (a transient DB hiccup, a knowledge-extraction error, anything) silently killed
+      // the whole event handler with no message sent and nothing but a bare
+      // unhandledRejection to notice it by, since this runs as a fire-and-forget
+      // `@OnEvent` listener. A customer's reply going completely unanswered — with no
+      // trace of why — is the exact "first message auto-sends, later replies never do"
+      // symptom this closes: log it clearly, and still get *something* to the customer
+      // the same way an AI-outage failure already does.
+      this.logger.error(
+        `Auto-reply generation crashed for conversation ${conversation.id}: ${err.message}`,
+        err.stack,
+      );
+      if (client.fallbackMessage) {
+        await this.deliverReply(client, account, conversation.id, event, client.fallbackMessage, { forceImmediate: true });
+      }
+    }
+  }
+
+  private async generateAndDeliverReply(
+    client: { id: string; userId: string; automationMode: AutomationMode; businessName: string; fallbackMessage: string; conversationFlow: string | null; user: { phone: string | null } },
+    account: { id: string; sessionId: string },
+    conversation: { id: string; preferredLanguage: string | null },
+    event: WhatsappMessageReceivedEvent,
+  ) {
     // Every new conversation opens with a language check before any business content —
     // the first inbound message only gets this prompt; the customer's next message is
     // then treated as their language answer and stored for the rest of the conversation.
