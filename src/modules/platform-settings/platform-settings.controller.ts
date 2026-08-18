@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Post, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Patch, Post, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UserRole } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -6,6 +6,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { PlatformSettingsService } from './platform-settings.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
+import { UpdateDigestTimeDto } from './dto/update-digest-time.dto';
 
 const MAX_FAVICON_BYTES = 1 * 1024 * 1024;
 
@@ -34,6 +35,22 @@ export class PlatformSettingsController {
       action: 'PLATFORM_FAVICON_UPDATED',
       targetType: 'PlatformSettings',
       targetId: settings.id,
+      ipAddress: req.ip,
+    });
+    return settings;
+  }
+
+  /** The time (24h HH:mm, server-local) the daily digest becomes visible each day — shared by admin and client panels alike. */
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Patch('admin/settings/digest-time')
+  async updateDigestTime(@Body() dto: UpdateDigestTimeDto, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
+    const settings = await this.settingsService.updateDigestTime(dto.dailyDigestTime);
+    await this.auditLogService.record({
+      adminId: admin.userId,
+      action: 'PLATFORM_DIGEST_TIME_UPDATED',
+      targetType: 'PlatformSettings',
+      targetId: settings.id,
+      metadata: { dailyDigestTime: dto.dailyDigestTime },
       ipAddress: req.ip,
     });
     return settings;

@@ -704,9 +704,12 @@ model ClientBranding {
 
 /// Site-wide settings (not per-client). Only ever one row — created lazily on first read.
 model PlatformSettings {
-  id         String   @id @default(uuid())
-  faviconUrl String?
-  updatedAt  DateTime @updatedAt
+  id              String   @id @default(uuid())
+  faviconUrl      String?
+  /// 24-hour "HH:mm" server-local time — the daily digest (admin + client) withholds
+  /// today's figures until this time, so nobody sees a half-finished day's numbers.
+  dailyDigestTime String   @default("09:00")
+  updatedAt       DateTime @updatedAt
 }
 
 model AuditLog {

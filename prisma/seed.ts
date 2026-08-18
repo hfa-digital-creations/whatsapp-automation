@@ -18,6 +18,7 @@ const FEATURES = [
   { code: 'FULL_AUTONOMOUS_MODE', name: 'Full Autonomous Mode' },
   { code: 'ANALYTICS', name: 'Analytics' },
   { code: 'WHATSAPP_ACCOUNT_REMOVAL', name: 'Client Can Remove WhatsApp Accounts' },
+  { code: 'DAILY_DIGEST', name: 'Daily Digest' },
 ];
 
 async function main() {

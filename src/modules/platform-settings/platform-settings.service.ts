@@ -49,4 +49,9 @@ export class PlatformSettingsService {
       data: { faviconUrl: `/api/uploads/platform/${storedFileName}` },
     });
   }
+
+  async updateDigestTime(dailyDigestTime: string) {
+    const settings = await this.get();
+    return this.prisma.platformSettings.update({ where: { id: settings.id }, data: { dailyDigestTime } });
+  }
 }

@@ -7,5 +7,6 @@ import { AuditLogModule } from '../audit-log/audit-log.module';
   imports: [AuditLogModule],
   controllers: [PlatformSettingsController],
   providers: [PlatformSettingsService],
+  exports: [PlatformSettingsService],
 })
 export class PlatformSettingsModule {}
