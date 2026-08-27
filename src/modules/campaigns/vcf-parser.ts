@@ -1,6 +1,11 @@
 export interface ParsedVcfContact {
   name?: string;
   phone: string;
+  /** False when the source TEL had no "+" and the digits are too short to plausibly include a
+   * country code (e.g. a bare 10-digit local number, as most phones' Contacts apps store them).
+   * WhatsApp requires the full international number, so these will silently fail to send until
+   * corrected — callers should keep them out of anything sendable rather than importing them as-is. */
+  hasCountryCode: boolean;
 }
 
 /**
@@ -24,6 +29,7 @@ export function parseVcf(content: string): ParsedVcfContact[] {
 
     let name: string | undefined;
     let phone: string | undefined;
+    let hasCountryCode = false;
 
     for (const line of lines) {
       if (/^END:VCARD/i.test(line)) break;
@@ -43,11 +49,17 @@ export function parseVcf(content: string): ParsedVcfContact[] {
         if (display) name = display;
       } else if (key === 'TEL' && !phone) {
         const digits = value.replace(/[^\d+]/g, '').replace(/^\+/, '');
-        if (digits) phone = digits;
+        if (digits) {
+          phone = digits;
+          // A bare 10-digit (or shorter) number with no "+" is almost always a local number
+          // saved without its country code — every real country code + national number combo
+          // runs longer than that.
+          hasCountryCode = value.trim().startsWith('+') || digits.length > 10;
+        }
       }
     }
 
-    if (phone) contacts.push({ name, phone });
+    if (phone) contacts.push({ name, phone, hasCountryCode });
   }
   return contacts;
 }

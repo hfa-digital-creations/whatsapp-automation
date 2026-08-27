@@ -88,7 +88,14 @@ export class OfferGroupsService {
     );
   }
 
-  /** Bulk-adds every contact with a phone number found in an uploaded .vcf file, skipping ones already in the group. */
+  /**
+   * Bulk-adds every contact with a phone number found in an uploaded .vcf file, skipping ones
+   * already in the group. Contacts whose number has no country code are deliberately left out —
+   * WhatsApp requires the full international number, so importing them as-is would only surface
+   * as a mysterious "message send failed" once the campaign runs. Their count is reported back
+   * instead so the caller can tell the admin/client to fix them at the source (save the contact
+   * with its country code, e.g. +91XXXXXXXXXX) and re-export.
+   */
   async importVcf(groupId: string, file: Express.Multer.File, ownerClientId: string | null = null) {
     await this.getById(groupId, ownerClientId);
     const contacts = parseVcf(file.buffer.toString('utf8'));
@@ -104,7 +111,12 @@ export class OfferGroupsService {
 
     let imported = 0;
     let skipped = 0;
+    let missingCountryCode = 0;
     for (const contact of contacts) {
+      if (!contact.hasCountryCode) {
+        missingCountryCode++;
+        continue;
+      }
       if (existingPhones.has(contact.phone)) {
         skipped++;
         continue;
@@ -116,6 +128,6 @@ export class OfferGroupsService {
       imported++;
     }
 
-    return { imported, skipped, total: contacts.length };
+    return { imported, skipped, missingCountryCode, total: contacts.length };
   }
 }
