@@ -228,8 +228,14 @@ function GroupMembersPanel({ groupId, accounts, onError }: { groupId: string; ac
       return api.post(`/client/offer-groups/${groupId}/members/import-vcf`, body);
     },
     onSuccess: (res) => {
-      const { imported, skipped } = res.data.data;
-      setImportResult(`Imported ${imported} contact(s)${skipped > 0 ? `, skipped ${skipped} already in the group` : ''}.`);
+      const { imported, skipped, missingCountryCode } = res.data.data;
+      setImportResult(
+        `Imported ${imported} contact(s)` +
+          (skipped > 0 ? `, skipped ${skipped} already in the group` : '') +
+          (missingCountryCode > 0
+            ? `. Skipped ${missingCountryCode} without a country code — save them as e.g. +91XXXXXXXXXX in your contacts and re-import.`
+            : '.'),
+      );
       onError('');
       invalidate();
       if (vcfInputRef.current) vcfInputRef.current.value = '';
@@ -267,7 +273,8 @@ function GroupMembersPanel({ groupId, accounts, onError }: { groupId: string; ac
         </div>
         <input ref={vcfInputRef} type="file" accept=".vcf,text/vcard" onChange={handleVcfChange} className="hidden" />
         <p className="mt-1 text-[11px] text-slate-400">
-          Exported from your phone or Google/Apple/Outlook contacts. Contacts already in this group are skipped.
+          Exported from your phone or Google/Apple/Outlook contacts. Contacts already in this group are skipped, and
+          any saved without a country code (e.g. +91) are skipped too since WhatsApp can't be messaged without one.
         </p>
       </div>
 
@@ -564,8 +571,14 @@ function QuickVcfImportPanel({ groups, onImported, onError, onClose }: { groups:
       const res = await api.post(`/client/offer-groups/${groupId}/members/import-vcf`, body);
       return res.data.data;
     },
-    onSuccess: ({ imported, skipped }) => {
-      setResult(`Imported ${imported} contact(s)${skipped > 0 ? `, skipped ${skipped} already in the group` : ''}.`);
+    onSuccess: ({ imported, skipped, missingCountryCode }) => {
+      setResult(
+        `Imported ${imported} contact(s)` +
+          (skipped > 0 ? `, skipped ${skipped} already in the group` : '') +
+          (missingCountryCode > 0
+            ? `. Skipped ${missingCountryCode} without a country code — save them as e.g. +91XXXXXXXXXX in your contacts and re-import.`
+            : '.'),
+      );
       onError('');
       queryClient.invalidateQueries({ queryKey: ['client-offer-groups'] });
       onImported();
@@ -624,7 +637,9 @@ function QuickVcfImportPanel({ groups, onImported, onError, onClose }: { groups:
       </div>
       <input ref={fileInputRef} type="file" accept=".vcf,text/vcard" onChange={handleFileChange} className="hidden" />
       {result && <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">{result} See the Contacts tab below.</p>}
-      <p className="text-[11px] text-slate-400">Exported from your phone or Google/Apple/Outlook contacts.</p>
+      <p className="text-[11px] text-slate-400">
+        Exported from your phone or Google/Apple/Outlook contacts. Numbers saved without a country code (e.g. +91) will be skipped.
+      </p>
     </Card>
   );
 }
@@ -1081,11 +1096,9 @@ export default function ClientOffers() {
                     {c.status === 'DRAFT' && (
                       <Button variant="secondary" className="px-2.5 py-1 text-[11px]" onClick={() => startEdit(c)}>Edit</Button>
                     )}
-                    {c.status !== 'RUNNING' && (
-                      <Button variant="danger" className="px-2.5 py-1 text-[11px]" onClick={() => deleteMutation.mutate(c.id)} disabled={deleteMutation.isPending}>
-                        Delete
-                      </Button>
-                    )}
+                    <Button variant="danger" className="px-2.5 py-1 text-[11px]" onClick={() => deleteMutation.mutate(c.id)} disabled={deleteMutation.isPending}>
+                      Delete
+                    </Button>
                   </div>
                 </div>
                 <p className="mt-3 rounded-xl bg-white/40 p-3 text-xs text-slate-700 whitespace-pre-wrap border border-slate-200/50 dark:bg-white/[0.02] dark:border-white/5 dark:text-slate-300">
