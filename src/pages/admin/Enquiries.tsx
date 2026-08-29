@@ -9,6 +9,11 @@ interface Enquiry {
   businessType: string | null; message: string | null; status: string; createdAt: string;
 }
 
+interface Plan {
+  id: string;
+  title: string;
+}
+
 interface EnquiryMessage {
   id: string; direction: 'INBOUND' | 'OUTBOUND'; content: string; createdAt: string;
 }
@@ -58,11 +63,17 @@ export default function AdminEnquiries() {
   const [status, setStatus] = useState('');
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
 
   const { data: enquiries, isLoading } = useQuery<Enquiry[]>({
     queryKey: ['admin-enquiries', status],
     queryFn: async () => (await api.get('/admin/enquiries', { params: { status: status || undefined } })).data.data,
+  });
+
+  const { data: plans } = useQuery<Plan[]>({
+    queryKey: ['admin-plans-active'],
+    queryFn: async () => (await api.get('/admin/plans', { params: { status: 'ACTIVE' } })).data.data,
   });
 
   const statusMutation = useMutation({
@@ -91,6 +102,21 @@ export default function AdminEnquiries() {
         delete next[id];
         return next;
       });
+      queryClient.invalidateQueries({ queryKey: ['admin-enquiries'] });
+    },
+    onError: (err) => setError(apiErrorMessage(err)),
+  });
+
+  /**
+   * The only two things an admin does to turn a lead into a paying client: pick a plan,
+   * click this. Account creation, an AI-drafted starting knowledge base, and login
+   * credentials all happen server-side — see EnquiriesService.approveAndActivate().
+   */
+  const approveMutation = useMutation({
+    mutationFn: ({ id, planId }: { id: string; planId: string }) =>
+      api.post(`/admin/enquiries/${id}/approve-and-activate`, { planId }),
+    onSuccess: () => {
+      setError('');
       queryClient.invalidateQueries({ queryKey: ['admin-enquiries'] });
     },
     onError: (err) => setError(apiErrorMessage(err)),
@@ -199,6 +225,29 @@ export default function AdminEnquiries() {
                     {generateMutation.isPending ? 'Generating...' : '✨ Generate AI Pitch'}
                   </Button>
                 </div>
+
+                {e.status !== 'CONVERTED' && (
+                  <div className="mt-3.5 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.04] p-3">
+                    <Select
+                      value={selectedPlan[e.id] ?? ''}
+                      className="min-w-[160px] flex-1 text-xs py-1"
+                      onChange={(ev) => setSelectedPlan((s) => ({ ...s, [e.id]: ev.target.value }))}
+                    >
+                      <option value="">Select a plan to activate...</option>
+                      {plans?.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+                    </Select>
+                    <Button
+                      className="text-xs px-3 py-1.5"
+                      disabled={!selectedPlan[e.id] || approveMutation.isPending}
+                      onClick={() => approveMutation.mutate({ id: e.id, planId: selectedPlan[e.id] })}
+                    >
+                      {approveMutation.isPending ? 'Activating...' : '✅ Approve & Activate'}
+                    </Button>
+                    <p className="w-full text-[10.5px] text-slate-500 dark:text-slate-400">
+                      Creates the client account, drafts a starting knowledge base from their enquiry, and sends login credentials — automatically.
+                    </p>
+                  </div>
+                )}
 
                 {expandedId === e.id && <EnquiryConversation enquiryId={e.id} />}
 

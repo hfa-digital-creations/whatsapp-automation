@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
 import { useTheme } from '../../context/ThemeContext';
-import { Badge, Button, Card, ErrorText, Input, Textarea } from '../../components/ui';
+import { Badge, Button, Card, ErrorText, Input, Select, Textarea } from '../../components/ui';
 
 interface Plan {
   id: string;
@@ -19,15 +19,20 @@ interface Plan {
 }
 
 const FEATURES = [
-  { title: '24/7 WhatsApp Automation', desc: 'Never miss a customer message, day or night, with instant responsive engagement.', icon: '⚡' },
-  { title: 'AI-Powered Conversations', desc: 'Natural, human-like replies grounded strictly in your verified business knowledge base.', icon: '🤖' },
-  { title: 'Lead Qualification', desc: 'Automatically collect names, requirements, and budget details for your sales team.', icon: '🎯' },
-  { title: 'Automatic Follow-ups', desc: 'Send smart renewal reminders, seasonal offers, and enquiry follow-ups effortlessly.', icon: '🔄' },
-  { title: 'Quotation Generation', desc: 'Generate and send instant itemized pricing estimates based on your rate card.', icon: '📄' },
-  { title: 'Payment Checkouts', desc: 'Share your Razorpay or custom payment link at the exact moment of intent.', icon: '💳' },
-  { title: 'Semantic Knowledge Training', desc: 'Teach the assistant your FAQs, PDFs, catalogs, pricing models, and policies.', icon: '🧠' },
-  { title: 'Multi-Number Accounts', desc: 'Connect and coordinate multiple WhatsApp lines seamlessly under one organization.', icon: '📱' },
-  { title: 'Draft & Approve Mode', desc: 'Human-in-the-loop oversight to review and approve AI drafts before dispatch.', icon: '🛡️' },
+  { title: 'WhatsApp Automation', desc: 'Your own connected WhatsApp number replies to customers automatically, day or night.', icon: '⚡' },
+  { title: 'Auto Reply, Grounded in Facts', desc: 'The AI replies instantly using only your approved business knowledge — it never invents facts or prices.', icon: '🤖' },
+  { title: 'Business Training', desc: 'Train the AI on your own services, pricing, and policies via plain text or uploaded PDF/DOC/CSV files.', icon: '🧠' },
+  { title: 'Draft & Approve Mode', desc: 'Have a human review and approve every AI-drafted reply before it sends — full oversight when you want it.', icon: '🛡️' },
+  { title: 'Full Autonomous Mode', desc: 'Or let the AI reply completely on its own, with no human step in between.', icon: '🚀' },
+  { title: 'Enquiry Automation', desc: 'New enquiries from this very page get an instant AI reply and an ongoing WhatsApp conversation, automatically.', icon: '📥' },
+  { title: 'Automatic Sales Follow-up', desc: 'AI-drafted follow-up messages go out on their own to prospects who’ve gone quiet — no admin has to remember.', icon: '🔄' },
+  { title: 'Automatic Quotation', desc: 'Generate and send an itemized price quote straight from your rate card, no manual typing.', icon: '📄' },
+  { title: 'Payment Link', desc: 'Share a Razorpay or custom payment link right inside the WhatsApp chat, at the exact moment of intent.', icon: '💳' },
+  { title: 'Renewal Messages', desc: 'Scheduled WhatsApp and email reminders before a client’s subscription expires — never lose a renewal to silence.', icon: '⏰' },
+  { title: 'Offer Broadcasts', desc: 'Send promotional offers to your client list or your own customer contact groups, with delivery tracking and retry.', icon: '📢' },
+  { title: 'Multiple WhatsApp Accounts', desc: 'Connect and run several WhatsApp numbers under one account, based on your plan.', icon: '📱' },
+  { title: 'Live Dashboard & Analytics', desc: 'See conversations, leads, and subscription health at a glance.', icon: '📊' },
+  { title: 'Daily Digest', desc: 'A daily WhatsApp summary of what happened across your account, sent straight to you.', icon: '🗞️' },
 ];
 
 const INDUSTRIES = [
@@ -316,7 +321,7 @@ export default function Landing() {
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Work Email</label>
-                  <Input type="email" placeholder="rajesh@company.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                  <Input type="email" required placeholder="rajesh@company.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Company / Brand Name</label>
@@ -324,7 +329,15 @@ export default function Landing() {
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Industry / Requirement Notes</label>
+                <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Industry</label>
+                <Select value={form.businessType} onChange={(e) => setForm({ ...form, businessType: e.target.value })}>
+                  <option value="">Select your industry</option>
+                  {INDUSTRIES.map((i) => <option key={i} value={i}>{i}</option>)}
+                  <option value="Other">Other</option>
+                </Select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Requirement Notes</label>
                 <Textarea
                   placeholder="Tell us about your volume, customer inquiries, and automation goals..."
                   rows={3}
