@@ -18,6 +18,10 @@ export interface OfferSendJobData {
   sessionId?: string;
 }
 
+export interface OfferRetryAllJobData {
+  campaignId: string;
+}
+
 @Processor('offers')
 export class OfferSendProcessor extends WorkerHost {
   private readonly logger = new Logger(OfferSendProcessor.name);
@@ -26,10 +30,17 @@ export class OfferSendProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<OfferSendJobData>): Promise<void> {
-    if (job.name !== 'send-offer') return;
-    const { campaignId, target, message, clientIds, phoneNumbers, groupId, sessionId } = job.data;
-    const result = await this.offersService.executeSend(campaignId, target, message, clientIds, phoneNumbers, groupId, sessionId);
-    this.logger.log(`Offer campaign ${campaignId} complete: ${JSON.stringify(result)}`);
+  async process(job: Job<OfferSendJobData | OfferRetryAllJobData>): Promise<void> {
+    if (job.name === 'send-offer') {
+      const { campaignId, target, message, clientIds, phoneNumbers, groupId, sessionId } = job.data as OfferSendJobData;
+      const result = await this.offersService.executeSend(campaignId, target, message, clientIds, phoneNumbers, groupId, sessionId);
+      this.logger.log(`Offer campaign ${campaignId} complete: ${JSON.stringify(result)}`);
+      return;
+    }
+    if (job.name === 'retry-failed') {
+      const { campaignId } = job.data as OfferRetryAllJobData;
+      const result = await this.offersService.executeRetryAll(campaignId);
+      this.logger.log(`Offer campaign ${campaignId} retry-all complete: ${JSON.stringify(result)}`);
+    }
   }
 }

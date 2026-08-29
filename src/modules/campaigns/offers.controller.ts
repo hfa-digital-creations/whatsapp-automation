@@ -7,7 +7,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { OffersService } from './offers.service';
 import { OfferGroupsService } from './offer-groups.service';
-import { OfferSendJobData } from './offer-send.processor';
+import { OfferSendJobData, OfferRetryAllJobData } from './offer-send.processor';
 import { CreateOfferDto } from './dto/create-offer.dto';
 import { UpdateOfferDto } from './dto/update-offer.dto';
 import { SendOfferDto } from './dto/send-offer.dto';
@@ -23,7 +23,7 @@ export class OffersController {
     private readonly offersService: OffersService,
     private readonly offerGroupsService: OfferGroupsService,
     private readonly auditLogService: AuditLogService,
-    @InjectQueue('offers') private readonly offersQueue: Queue<OfferSendJobData>,
+    @InjectQueue('offers') private readonly offersQueue: Queue<OfferSendJobData | OfferRetryAllJobData>,
   ) {}
 
   @Get()
@@ -59,6 +59,37 @@ export class OffersController {
       ipAddress: req.ip,
     });
     return result;
+  }
+
+  /**
+   * Queues a background retry of every FAILED message on this campaign — same batching/
+   * throttle as a fresh send (see OffersService.prepareRetryAll/executeRetryAll), so it
+   * can take several minutes for a campaign with many failures. Progress is visible via
+   * GET :id/messages the same way a regular send is, since the campaign flips to RUNNING.
+   */
+  @Post(':id/messages/retry-all')
+  async retryAllFailed(@Param('id') id: string, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
+    const { count } = await this.offersService.prepareRetryAll(id, null);
+    await this.offersQueue.add(
+      'retry-failed',
+      { campaignId: id },
+      {
+        jobId: `offer-retry-${id}`,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 60_000 },
+        removeOnComplete: true,
+        removeOnFail: false,
+      },
+    );
+    await this.auditLogService.record({
+      adminId: admin.userId,
+      action: 'OFFER_CAMPAIGN_RETRY_ALL_QUEUED',
+      targetType: 'Campaign',
+      targetId: id,
+      metadata: { count },
+      ipAddress: req.ip,
+    });
+    return { queued: true, count };
   }
 
   @Post()

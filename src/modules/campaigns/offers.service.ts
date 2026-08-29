@@ -227,6 +227,40 @@ export class OffersService {
     return { sent: true };
   }
 
+  /** Shared by the single-message and retry-all paths: re-sends one message and records the outcome. */
+  private async sendAndRecordRetry(
+    campaignName: string,
+    msg: { id: string; content: string },
+    phone: string | null,
+    email: string | null | undefined,
+    media: { filePath: string; fileName: string } | null,
+  ): Promise<boolean> {
+    let whatsappSent = false;
+    try {
+      const result = await this.notificationsService.sendCustom({
+        email: email ?? undefined,
+        phone,
+        subject: campaignName,
+        emailHtml: email ? `<p>${msg.content}</p>` : undefined,
+        whatsappMessage: msg.content,
+        media: media ?? undefined,
+      });
+      whatsappSent = result.emailSent || result.whatsappSent;
+    } catch (err: any) {
+      this.logger.warn(`Retry failed for message ${msg.id}: ${err.message}`);
+    }
+
+    await this.prisma.campaignMessage.update({
+      where: { id: msg.id },
+      data: {
+        status: whatsappSent ? MessageStatus.SENT : MessageStatus.FAILED,
+        sentAt: whatsappSent ? new Date() : undefined,
+      },
+    });
+
+    return whatsappSent;
+  }
+
   /**
    * Retries a single FAILED CampaignMessage — looks up the original recipient details,
    * re-sends via the same notification path as the batch loop, and updates the record
@@ -256,30 +290,66 @@ export class OffersService {
         ? { filePath: this.resolveMediaPath(config.mediaUrl), fileName: config.mediaFileName }
         : null;
 
-    let whatsappSent = false;
-    try {
-      const result = await this.notificationsService.sendCustom({
-        email: email ?? undefined,
-        phone,
-        subject: campaign.name,
-        emailHtml: email ? `<p>${msg.content}</p>` : undefined,
-        whatsappMessage: msg.content,
-        media: media ?? undefined,
-      });
-      whatsappSent = result.emailSent || result.whatsappSent;
-    } catch (err: any) {
-      this.logger.warn(`Retry failed for message ${messageId}: ${err.message}`);
-    }
+    const sent = await this.sendAndRecordRetry(campaign.name, msg, phone, email, media);
+    return { sent };
+  }
 
-    await this.prisma.campaignMessage.update({
-      where: { id: messageId },
-      data: {
-        status: whatsappSent ? MessageStatus.SENT : MessageStatus.FAILED,
-        sentAt: whatsappSent ? new Date() : undefined,
-      },
+  /**
+   * Validates a "retry all failed" request up front, synchronously, then flips the
+   * campaign to RUNNING so it can't overlap a real send or another retry run — mirrors
+   * prepareSend()/executeSend() for the same reason: batching + multi-minute pauses
+   * between batches can't fit inside an HTTP request, so the actual work happens in
+   * executeRetryAll() via the background queue.
+   */
+  async prepareRetryAll(campaignId: string, ownerClientId: string | null = null): Promise<{ count: number }> {
+    const campaign = await this.campaignsService.getById(campaignId, ownerClientId);
+    if (campaign.type !== CampaignType.OFFER) throw new BadRequestException('Not an offer campaign.');
+    if (campaign.deletedAt) throw new BadRequestException('This campaign is in the trash — restore it first.');
+    if (campaign.status === CampaignStatus.RUNNING) {
+      throw new BadRequestException('This campaign is already sending.');
+    }
+    const count = await this.prisma.campaignMessage.count({ where: { campaignId, status: MessageStatus.FAILED } });
+    if (count === 0) throw new BadRequestException('No failed messages to retry.');
+    await this.campaignsService.updateStatus(campaignId, CampaignStatus.RUNNING);
+    return { count };
+  }
+
+  /**
+   * Runs the actual batched retry of every FAILED message on this campaign — invoked by
+   * the offers queue processor, never directly from the controller (see prepareRetryAll).
+   * Same batch size / throttle delays as a fresh send, since this is just as much bulk
+   * outbound WhatsApp traffic as the original send was.
+   */
+  async executeRetryAll(campaignId: string): Promise<{ retried: number; sent: number }> {
+    const campaign = await this.campaignsService.getById(campaignId);
+    const config = campaign.config as OfferCampaignConfig | null;
+    const media =
+      config?.mediaUrl && config.mediaFileName
+        ? { filePath: this.resolveMediaPath(config.mediaUrl), fileName: config.mediaFileName }
+        : null;
+
+    const failedMessages = await this.prisma.campaignMessage.findMany({
+      where: { campaignId, status: MessageStatus.FAILED },
+      include: { client: { include: { user: true } } },
     });
 
-    return { sent: whatsappSent };
+    let sentCount = 0;
+    for (let i = 0; i < failedMessages.length; i += BATCH_SIZE) {
+      const batch = failedMessages.slice(i, i + BATCH_SIZE);
+      if (i > 0) await sleep(batchPauseMs());
+
+      for (let j = 0; j < batch.length; j++) {
+        if (j > 0) await sleep(humanSendDelayMs());
+        const msg = batch[j];
+        const phone = msg.client?.user.phone ?? msg.recipientPhone ?? null;
+        const email = msg.client?.user.email;
+        if (!phone && !email) continue; // nothing to retry with — leave it FAILED
+        if (await this.sendAndRecordRetry(campaign.name, msg, phone, email, media)) sentCount++;
+      }
+    }
+
+    await this.campaignsService.updateStatus(campaignId, CampaignStatus.COMPLETED);
+    return { retried: failedMessages.length, sent: sentCount };
   }
 
   /** AI-drafted broadcast copy from a short prompt — a starting point the caller can still edit before sending. */
