@@ -64,8 +64,16 @@ export class EnquiryFollowUpService {
         continue;
       }
 
-      await this.enquiryMessageService.send(enquiry.id, draft);
-      sent++;
+      try {
+        // send() throws when neither email nor WhatsApp actually went out — one enquiry's
+        // delivery failure (e.g. the system WhatsApp session being disconnected) must never
+        // abort the rest of this batch.
+        await this.enquiryMessageService.send(enquiry.id, draft);
+        sent++;
+      } catch (err: any) {
+        this.logger.warn(`Follow-up send failed for enquiry ${enquiry.id}: ${err.message}`);
+        skipped++;
+      }
     }
 
     this.logger.log(`Enquiry follow-ups: sent ${sent}, skipped ${skipped}`);

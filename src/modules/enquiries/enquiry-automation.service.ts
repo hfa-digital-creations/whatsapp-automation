@@ -93,13 +93,25 @@ Their message: ${enquiry.message ?? '(no message provided)'}`;
       return;
     }
 
-    await this.notificationsService.sendCustom({
+    const result = await this.notificationsService.sendCustom({
       phone: enquiry.phone,
       email: enquiry.email,
       subject: 'Thanks for reaching out to WhatsApp Automation',
       emailHtml: enquiry.email ? `<p>${message.replace(/\n/g, '<br/>')}</p>` : undefined,
       whatsappMessage: message,
     });
+
+    if (!result.emailSent && !result.whatsappSent) {
+      // Nothing actually reached the prospect — don't log a phantom "sent" message in
+      // their conversation thread or mark the enquiry CONTACTED when it wasn't.
+      this.logger.warn(
+        `Initial outreach for enquiry ${enquiry.id} did not go out via email or WhatsApp.${
+          result.whatsappFailureReason ? ` WhatsApp: ${result.whatsappFailureReason}` : ''
+        }`,
+      );
+      return;
+    }
+
     await this.recordMessage(enquiry.id, MessageDirection.OUTBOUND, message);
 
     if (enquiry.status === EnquiryStatus.NEW) {

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CampaignType, EnquiryStatus, MessageDirection } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { AiService } from '../../common/services/ai.service';
@@ -60,8 +60,19 @@ Their message: ${enquiry.message ?? '(no message provided)'}`;
       content,
       sent: result.whatsappSent || result.emailSent,
     });
-    // Also logged to the conversation thread (used by both this manual send and the
-    // automatic enquiry outreach/replies) so the admin panel shows one complete history.
+
+    if (!result.whatsappSent && !result.emailSent) {
+      // Surface the real reason instead of silently returning a "success" the caller has
+      // no way to notice — this was previously indistinguishable from an actual send from
+      // the admin panel: no error shown, and a phantom "sent" bubble logged below anyway.
+      throw new BadRequestException(
+        `Could not send this message.${result.whatsappFailureReason ? ` (${result.whatsappFailureReason})` : ''}`,
+      );
+    }
+
+    // Only logged to the conversation thread once we know it actually reached the prospect
+    // (used by both this manual send and the automatic enquiry outreach/replies) so the
+    // admin panel's history reflects what was really delivered, not just attempted.
     await this.prisma.enquiryMessage.create({ data: { enquiryId, direction: MessageDirection.OUTBOUND, content } });
 
     if (enquiry.status === EnquiryStatus.NEW) {
