@@ -63,7 +63,7 @@ export class NotificationsService implements OnModuleInit {
         `Hi ${businessName}, your account is now active.\n` +
         `Login: ${loginUrl}\nEmail: ${email}\nTemporary Password: ${temporaryPassword}\n\n` +
         `You'll be asked to set a new password on first login.`;
-      whatsappSent = await this.whatsappSessionManager.sendMessage(SYSTEM_WHATSAPP_SESSION_ID, phone, message);
+      whatsappSent = (await this.whatsappSessionManager.sendMessage(SYSTEM_WHATSAPP_SESSION_ID, phone, message)).sent;
     }
 
     if (!emailSent && !whatsappSent) {
@@ -85,7 +85,7 @@ export class NotificationsService implements OnModuleInit {
     /** Which WhatsApp session to send from — defaults to the platform's own system number.
      * A client's own promotional campaign sends via their own connected account instead. */
     sessionId?: string;
-  }): Promise<{ emailSent: boolean; whatsappSent: boolean }> {
+  }): Promise<{ emailSent: boolean; whatsappSent: boolean; whatsappFailureReason?: string }> {
     const sessionId = params.sessionId ?? SYSTEM_WHATSAPP_SESSION_ID;
     const emailSent =
       params.email && params.emailHtml
@@ -96,17 +96,15 @@ export class NotificationsService implements OnModuleInit {
             params.media ? [{ filename: params.media.fileName, path: params.media.filePath }] : undefined,
           )
         : false;
-    const whatsappSent =
-      params.phone && params.whatsappMessage
-        ? params.media
-          ? await this.whatsappSessionManager.sendMediaMessage(
-              sessionId,
-              params.phone,
-              params.media.filePath,
-              params.whatsappMessage,
-            )
-          : await this.whatsappSessionManager.sendMessage(sessionId, params.phone, params.whatsappMessage)
-        : false;
-    return { emailSent, whatsappSent };
+    let whatsappSent = false;
+    let whatsappFailureReason: string | undefined;
+    if (params.phone && params.whatsappMessage) {
+      const result = params.media
+        ? await this.whatsappSessionManager.sendMediaMessage(sessionId, params.phone, params.media.filePath, params.whatsappMessage)
+        : await this.whatsappSessionManager.sendMessage(sessionId, params.phone, params.whatsappMessage);
+      whatsappSent = result.sent;
+      whatsappFailureReason = result.reason;
+    }
+    return { emailSent, whatsappSent, whatsappFailureReason };
   }
 }

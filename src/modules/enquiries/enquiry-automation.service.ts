@@ -159,7 +159,7 @@ Their message: ${enquiry.message ?? '(no message provided)'}`;
       return;
     }
 
-    const sent = await this.sessionManager.sendMessage(SYSTEM_WHATSAPP_SESSION_ID, event.fromPhone, reply);
+    const { sent } = await this.sessionManager.sendMessage(SYSTEM_WHATSAPP_SESSION_ID, event.fromPhone, reply);
     if (sent) await this.recordMessage(enquiry.id, MessageDirection.OUTBOUND, reply);
   }
 

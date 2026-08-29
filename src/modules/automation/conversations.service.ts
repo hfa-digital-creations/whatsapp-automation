@@ -195,7 +195,7 @@ export class ConversationsService {
 
   async sendManual(clientId: string, conversationId: string, content: string) {
     const conversation = await this.getOwnedConversation(clientId, conversationId);
-    const sent = await this.sessionManager.sendMessage(conversation.whatsappAccount.sessionId, conversation.customerPhone, content);
+    const { sent } = await this.sessionManager.sendMessage(conversation.whatsappAccount.sessionId, conversation.customerPhone, content);
     return this.addMessage(conversationId, MessageDirection.OUTBOUND, content, {
       status: sent ? MessageStatus.SENT : MessageStatus.FAILED,
     });
@@ -215,7 +215,7 @@ export class ConversationsService {
     }
 
     const finalContent = editedContent?.trim() || message.content;
-    const sent = await this.sessionManager.sendMessage(
+    const { sent } = await this.sessionManager.sendMessage(
       message.conversation.whatsappAccount.sessionId,
       message.conversation.customerPhone,
       finalContent,

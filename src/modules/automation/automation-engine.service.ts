@@ -222,7 +222,7 @@ export class AutomationEngineService {
     opts: { forceImmediate?: boolean } = {},
   ) {
     if (opts.forceImmediate || client.automationMode === AutomationMode.FULL_AUTONOMOUS) {
-      const sent = await this.sessionManager.sendMessage(account.sessionId, event.fromPhone, content);
+      const { sent } = await this.sessionManager.sendMessage(account.sessionId, event.fromPhone, content);
       await this.conversationsService.addMessage(conversationId, MessageDirection.OUTBOUND, content, {
         automationGenerated: true,
         status: sent ? MessageStatus.SENT : MessageStatus.FAILED,

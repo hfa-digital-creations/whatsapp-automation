@@ -187,9 +187,11 @@ export class DigestService {
 
     const digest = await this.buildAdminDigest();
     const message = this.formatDigestMessage(digest);
-    const sent = await this.sessionManager.sendMessage(SYSTEM_WHATSAPP_SESSION_ID, settings.dailyDigestWhatsappNumber, message);
+    const { sent, reason } = await this.sessionManager.sendMessage(SYSTEM_WHATSAPP_SESSION_ID, settings.dailyDigestWhatsappNumber, message);
     if (!sent) {
-      this.logger.warn(`Failed to send daily digest report to ${settings.dailyDigestWhatsappNumber} — will retry on the next check.`);
+      this.logger.warn(
+        `Failed to send daily digest report to ${settings.dailyDigestWhatsappNumber} — will retry on the next check.${reason ? ` (${reason})` : ''}`,
+      );
       return;
     }
 

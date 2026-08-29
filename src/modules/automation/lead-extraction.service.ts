@@ -117,9 +117,11 @@ export class LeadExtractionService {
       `${details}\n\n` +
       `View the full conversation in your Contacts panel.`;
 
-    const sent = await this.sessionManager.sendMessage(SYSTEM_WHATSAPP_SESSION_ID, client.user.phone, message);
+    const { sent, reason } = await this.sessionManager.sendMessage(SYSTEM_WHATSAPP_SESSION_ID, client.user.phone, message);
     if (!sent) {
-      this.logger.warn(`Could not deliver lead notification for conversation ${conversationId} — system WhatsApp session may not be connected.`);
+      this.logger.warn(
+        `Could not deliver lead notification for conversation ${conversationId} — system WhatsApp session may not be connected.${reason ? ` (${reason})` : ''}`,
+      );
     }
   }
 }

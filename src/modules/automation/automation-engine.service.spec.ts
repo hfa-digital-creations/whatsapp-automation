@@ -43,7 +43,7 @@ describe('AutomationEngineService.handleIncomingMessage', () => {
     const subscriptionService = { computeStatus: jest.fn().mockReturnValue('ACTIVE') };
     const knowledgeExtraction = { getKnowledgeContext: jest.fn().mockResolvedValue('[PRICING]\n- Starting price: ₹25,000') };
     const notificationsService = { notifyInApp: jest.fn().mockResolvedValue(undefined) };
-    const sessionManager = { sendMessage: jest.fn().mockResolvedValue(opts.sendResult ?? true) };
+    const sessionManager = { sendMessage: jest.fn().mockResolvedValue({ sent: opts.sendResult ?? true }) };
     const conversationsService = {
       findOrCreate: jest.fn().mockResolvedValue({ ...CONVERSATION, ...opts.conversation }),
       addMessage: jest.fn().mockResolvedValue(undefined),

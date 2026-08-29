@@ -350,12 +350,18 @@ export class WhatsappSessionManagerService implements OnModuleInit, OnModuleDest
 
   /**
    * Used for system/transactional messages (activation credentials, reminders).
-   * Best-effort: returns false instead of throwing if the session isn't connected,
-   * so callers can fall back to email without failing the whole operation.
+   * Best-effort: resolves with sent: false instead of throwing if the session isn't
+   * connected, so callers can fall back to email without failing the whole operation.
+   * `reason` carries the actual cause (session down vs. WhatsApp's own rejection) so a
+   * caller that surfaces failures to a human (e.g. a campaign's failed-message retry)
+   * doesn't have to leave them guessing at an opaque "failed".
    */
-  async sendMessage(sessionId: string, toPhone: string, message: string): Promise<boolean> {
+  async sendMessage(sessionId: string, toPhone: string, message: string): Promise<{ sent: boolean; reason?: string }> {
     const handle = this.sessions.get(sessionId);
-    if (!handle) return false;
+    if (!handle) return { sent: false, reason: 'WhatsApp session is not connected.' };
+    if (handle.status !== WhatsappAccountStatus.CONNECTED) {
+      return { sent: false, reason: `WhatsApp session is ${handle.status.toLowerCase()}, not connected.` };
+    }
     try {
       // toPhone is sometimes already a full WhatsApp JID — inbound messages from a
       // contact WhatsApp only exposes via their privacy-preserving Linked ID (not a
@@ -366,25 +372,28 @@ export class WhatsappSessionManagerService implements OnModuleInit, OnModuleDest
       // given a bare phone number (system notifications, activation messages, etc.).
       const chatId = toPhone.includes('@') ? toPhone : `${toPhone.replace(/\D/g, '')}@c.us`;
       await handle.client.sendMessage(chatId, message);
-      return true;
+      return { sent: true };
     } catch (err: any) {
       this.logger.warn(`Failed to send WhatsApp message via ${sessionId}: ${err.message}`);
-      return false;
+      return { sent: false, reason: err.message };
     }
   }
 
   /** Same delivery semantics as sendMessage(), but attaches a local file (image/video/document) with an optional caption. */
-  async sendMediaMessage(sessionId: string, toPhone: string, filePath: string, caption?: string): Promise<boolean> {
+  async sendMediaMessage(sessionId: string, toPhone: string, filePath: string, caption?: string): Promise<{ sent: boolean; reason?: string }> {
     const handle = this.sessions.get(sessionId);
-    if (!handle) return false;
+    if (!handle) return { sent: false, reason: 'WhatsApp session is not connected.' };
+    if (handle.status !== WhatsappAccountStatus.CONNECTED) {
+      return { sent: false, reason: `WhatsApp session is ${handle.status.toLowerCase()}, not connected.` };
+    }
     try {
       const chatId = toPhone.includes('@') ? toPhone : `${toPhone.replace(/\D/g, '')}@c.us`;
       const media = MessageMedia.fromFilePath(filePath);
       await handle.client.sendMessage(chatId, media, caption ? { caption } : undefined);
-      return true;
+      return { sent: true };
     } catch (err: any) {
       this.logger.warn(`Failed to send WhatsApp media via ${sessionId}: ${err.message}`);
-      return false;
+      return { sent: false, reason: err.message };
     }
   }
 }

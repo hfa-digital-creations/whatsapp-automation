@@ -264,14 +264,14 @@ export class ClientsService {
       },
     });
 
-    const sent = await this.whatsappSessionManager.sendMessage(
+    const { sent, reason } = await this.whatsappSessionManager.sendMessage(
       SYSTEM_WHATSAPP_SESSION_ID,
       client.user.phone,
       `To change your account phone number, we first need to confirm it's really you. Your verification code is: ${code}\n\nThis code expires in ${PHONE_OTP_TTL_MINUTES} minutes. If you didn't request this, you can ignore this message.`,
     );
     if (!sent) {
       throw new BadRequestException(
-        'Could not send a verification code to your current number right now. Make sure the system WhatsApp session is connected.',
+        `Could not send a verification code to your current number right now. Make sure the system WhatsApp session is connected.${reason ? ` (${reason})` : ''}`,
       );
     }
 
@@ -313,14 +313,14 @@ export class ClientsService {
       },
     });
 
-    const sent = await this.whatsappSessionManager.sendMessage(
+    const { sent, reason } = await this.whatsappSessionManager.sendMessage(
       SYSTEM_WHATSAPP_SESSION_ID,
       otp.newPhone,
       `Your current number is verified. Now confirm your new number — your verification code is: ${newCode}\n\nThis code expires in ${PHONE_OTP_TTL_MINUTES} minutes. If you didn't request this, you can ignore this message.`,
     );
     if (!sent) {
       throw new BadRequestException(
-        'Your current number was verified, but we could not send a code to the new number. Make sure it is correct, then start over.',
+        `Your current number was verified, but we could not send a code to the new number. Make sure it is correct, then start over.${reason ? ` (${reason})` : ''}`,
       );
     }
 

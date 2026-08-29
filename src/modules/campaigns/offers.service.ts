@@ -234,8 +234,9 @@ export class OffersService {
     phone: string | null,
     email: string | null | undefined,
     media: { filePath: string; fileName: string } | null,
-  ): Promise<boolean> {
-    let whatsappSent = false;
+  ): Promise<{ sent: boolean; reason?: string }> {
+    let sent = false;
+    let reason: string | undefined;
     try {
       const result = await this.notificationsService.sendCustom({
         email: email ?? undefined,
@@ -245,20 +246,22 @@ export class OffersService {
         whatsappMessage: msg.content,
         media: media ?? undefined,
       });
-      whatsappSent = result.emailSent || result.whatsappSent;
+      sent = result.emailSent || result.whatsappSent;
+      if (!sent) reason = result.whatsappFailureReason;
     } catch (err: any) {
+      reason = err.message;
       this.logger.warn(`Retry failed for message ${msg.id}: ${err.message}`);
     }
 
     await this.prisma.campaignMessage.update({
       where: { id: msg.id },
       data: {
-        status: whatsappSent ? MessageStatus.SENT : MessageStatus.FAILED,
-        sentAt: whatsappSent ? new Date() : undefined,
+        status: sent ? MessageStatus.SENT : MessageStatus.FAILED,
+        sentAt: sent ? new Date() : undefined,
       },
     });
 
-    return whatsappSent;
+    return { sent, reason };
   }
 
   /**
@@ -266,7 +269,11 @@ export class OffersService {
    * re-sends via the same notification path as the batch loop, and updates the record
    * from FAILED → SENT (or leaves it FAILED if it fails again).
    */
-  async retryFailedMessage(campaignId: string, messageId: string, ownerClientId: string | null = null): Promise<{ sent: boolean }> {
+  async retryFailedMessage(
+    campaignId: string,
+    messageId: string,
+    ownerClientId: string | null = null,
+  ): Promise<{ sent: boolean; reason?: string }> {
     // Ownership check — throws NotFoundException if scope doesn't match.
     const campaign = await this.campaignsService.getById(campaignId, ownerClientId);
     if (campaign.type !== CampaignType.OFFER) throw new BadRequestException('Not an offer campaign.');
@@ -290,8 +297,7 @@ export class OffersService {
         ? { filePath: this.resolveMediaPath(config.mediaUrl), fileName: config.mediaFileName }
         : null;
 
-    const sent = await this.sendAndRecordRetry(campaign.name, msg, phone, email, media);
-    return { sent };
+    return this.sendAndRecordRetry(campaign.name, msg, phone, email, media);
   }
 
   /**
@@ -344,7 +350,7 @@ export class OffersService {
         const phone = msg.client?.user.phone ?? msg.recipientPhone ?? null;
         const email = msg.client?.user.email;
         if (!phone && !email) continue; // nothing to retry with — leave it FAILED
-        if (await this.sendAndRecordRetry(campaign.name, msg, phone, email, media)) sentCount++;
+        if ((await this.sendAndRecordRetry(campaign.name, msg, phone, email, media)).sent) sentCount++;
       }
     }
 
