@@ -3,7 +3,8 @@ import { BullModule, InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { CampaignsService } from './campaigns.service';
 import { RenewalReminderService } from './renewal-reminder.service';
-import { RenewalReminderProcessor } from './renewal-reminder.processor';
+import { EnquiryFollowUpService } from './enquiry-followup.service';
+import { CampaignsProcessor } from './campaigns.processor';
 import { EnquiryMessageService } from './enquiry-message.service';
 import { OffersService } from './offers.service';
 import { OfferGroupsService } from './offer-groups.service';
@@ -30,7 +31,8 @@ import { FeaturesModule } from '../features/features.module';
   providers: [
     CampaignsService,
     RenewalReminderService,
-    RenewalReminderProcessor,
+    EnquiryFollowUpService,
+    CampaignsProcessor,
     EnquiryMessageService,
     OffersService,
     OfferGroupsService,
@@ -46,6 +48,12 @@ export class CampaignsModule implements OnModuleInit {
       'renewal-reminders',
       {},
       { repeat: { pattern: '0 9 * * *' }, jobId: 'renewal-reminders-daily' },
+    );
+    // Offset to 09:30 so the two daily jobs don't both hit the DB/AI provider at once.
+    await this.campaignsQueue.add(
+      'enquiry-followups',
+      {},
+      { repeat: { pattern: '30 9 * * *' }, jobId: 'enquiry-followups-daily' },
     );
   }
 }

@@ -1,9 +1,34 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { EnquiryStatus } from '@prisma/client';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Enquiry, EnquiryStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
+import { AiService } from '../../common/services/ai.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EnquiryAutomationService } from './enquiry-automation.service';
 import { CreateEnquiryDto } from './dto/create-enquiry.dto';
+import { ClientsService } from '../clients/clients.service';
+import { TrainingService } from '../training/training.service';
+
+/**
+ * Turns the little the prospect told us on the landing page (industry + free-text
+ * requirements) into a starting business-profile document for their own WhatsApp AI —
+ * this becomes a TEXT training source the moment their client account is activated, so
+ * the admin never has to hand-write training content the way earlier onboarding required.
+ */
+const BUSINESS_PROFILE_SYSTEM_PROMPT = `You write a short, structured business-profile document used to train a
+WhatsApp AI assistant for a business owner who just signed up. The document becomes that assistant's starting
+knowledge base for replying to the business's own customers.
+
+Rules:
+- Use ONLY the information given below (their industry and their own description of what they need). Never invent
+  specific prices, discounts, certifications, guarantees, years of experience, staff counts, or any other concrete
+  fact that wasn't actually stated.
+- Structure it as short labeled sections: "Business Identity" (name, industry, and a one-line summary of what they
+  told us), "Likely Services" (phrased as "businesses in this industry typically offer..." — a helpful starting
+  guess, not asserted as confirmed fact), and "Assistant Guidance" (instruct the assistant to ask the customer for
+  specifics rather than guessing, and to never quote a price, policy, or timeline that the business hasn't
+  separately confirmed in its own training content).
+- Keep it concise — this is a starting point the business owner is expected to edit and expand, not a final document.
+- Output ONLY the document text — no preamble, no markdown headers, no quotes around it.`;
 
 @Injectable()
 export class EnquiriesService {
@@ -11,8 +36,11 @@ export class EnquiriesService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly ai: AiService,
     private readonly notificationsService: NotificationsService,
     private readonly enquiryAutomation: EnquiryAutomationService,
+    private readonly clientsService: ClientsService,
+    private readonly trainingService: TrainingService,
   ) {}
 
   async create(dto: CreateEnquiryDto) {
@@ -61,5 +89,60 @@ export class EnquiriesService {
     }
 
     return updated;
+  }
+
+  /**
+   * The admin's whole job for turning an enquiry into a paying client: pick a plan, click
+   * once. Everything else — creating the account, drafting a starting knowledge base from
+   * what the prospect already told us, and sending login credentials — happens here.
+   */
+  async approveAndActivate(enquiryId: string, planId: string, adminId: string, ipAddress?: string) {
+    const enquiry = await this.prisma.enquiry.findUnique({ where: { id: enquiryId } });
+    if (!enquiry) throw new NotFoundException('Enquiry not found.');
+    if (enquiry.status === EnquiryStatus.CONVERTED) {
+      throw new BadRequestException('This enquiry has already been converted.');
+    }
+    if (!enquiry.email) {
+      throw new BadRequestException(
+        'This enquiry has no email on file — a client login requires one. Ask the prospect for their email, or create the client manually from the Clients panel.',
+      );
+    }
+
+    const client = await this.clientsService.create({
+      businessName: enquiry.businessName || enquiry.name,
+      email: enquiry.email,
+      phone: enquiry.phone,
+      planId,
+    });
+
+    // Fire-and-forget — a slow/failed AI draft must never block or fail the activation
+    // itself; the client can always add/edit their own training content afterward.
+    this.generateInitialTraining(client.id, enquiry).catch((err) =>
+      this.logger.warn(`Automatic training generation failed for client ${client.id} (enquiry ${enquiry.id}): ${err.message}`),
+    );
+
+    const activated = await this.clientsService.activate(
+      client.id,
+      adminId,
+      { planId, note: `Auto-created from enquiry ${enquiry.id}` },
+      ipAddress,
+    );
+
+    await this.updateStatus(enquiryId, EnquiryStatus.CONVERTED);
+
+    return activated;
+  }
+
+  private async generateInitialTraining(clientId: string, enquiry: Enquiry) {
+    if (!this.ai.isConfigured) return;
+
+    const prompt = `Business name: ${enquiry.businessName ?? enquiry.name}
+Industry: ${enquiry.businessType ?? 'not specified'}
+What they told us about their needs: ${enquiry.message ?? '(nothing specific provided)'}`;
+
+    const content = await this.ai.complete({ system: BUSINESS_PROFILE_SYSTEM_PROMPT, prompt, maxTokens: 500 });
+    if (!content) return;
+
+    await this.trainingService.createText(clientId, { title: 'Business Profile (auto-generated from signup)', content });
   }
 }

@@ -8,6 +8,6 @@ import { FeaturesModule } from '../features/features.module';
   imports: [FeaturesModule],
   controllers: [TrainingController],
   providers: [TrainingService, KnowledgeExtractionService],
-  exports: [KnowledgeExtractionService],
+  exports: [TrainingService, KnowledgeExtractionService],
 })
 export class TrainingModule {}

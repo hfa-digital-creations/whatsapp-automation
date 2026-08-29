@@ -5,9 +5,12 @@ import { EnquiriesController } from './enquiries.controller';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { PlansModule } from '../plans/plans.module';
+import { ClientsModule } from '../clients/clients.module';
+import { TrainingModule } from '../training/training.module';
+import { AuditLogModule } from '../audit-log/audit-log.module';
 
 @Module({
-  imports: [NotificationsModule, WhatsappModule, PlansModule],
+  imports: [NotificationsModule, WhatsappModule, PlansModule, ClientsModule, TrainingModule, AuditLogModule],
   controllers: [EnquiriesController],
   providers: [EnquiriesService, EnquiryAutomationService],
 })
