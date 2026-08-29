@@ -64,7 +64,7 @@ export default function Landing() {
     queryFn: async () => (await api.get('/public/plans')).data.data,
   });
 
-  const [form, setForm] = useState({ name: '', phone: '', email: '', businessName: '', businessType: '', message: '' });
+  const [form, setForm] = useState({ name: '', phone: '', email: '', businessName: '', businessType: '', message: '', planId: '' });
   const [submitted, setSubmitted] = useState(false);
   const enquiryMutation = useMutation({
     mutationFn: () => api.post('/public/enquiries', form),
@@ -335,6 +335,20 @@ export default function Landing() {
                   {INDUSTRIES.map((i) => <option key={i} value={i}>{i}</option>)}
                   <option value="Other">Other</option>
                 </Select>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Which Plan Interests You?</label>
+                <Select required value={form.planId} onChange={(e) => setForm({ ...form, planId: e.target.value })}>
+                  <option value="">Select a plan...</option>
+                  {plans?.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.title} — {formatPrice(p)} / {formatDuration(p)}
+                    </option>
+                  ))}
+                </Select>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  Our AI will focus the conversation on this plan and ask exactly what's needed to set your account up on it.
+                </p>
               </div>
               <div>
                 <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Requirement Notes</label>

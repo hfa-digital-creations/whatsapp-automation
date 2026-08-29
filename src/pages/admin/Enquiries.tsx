@@ -7,6 +7,7 @@ import { usePagination } from '../../lib/usePagination';
 interface Enquiry {
   id: string; name: string; phone: string; email: string | null; businessName: string | null;
   businessType: string | null; message: string | null; status: string; createdAt: string;
+  planId: string | null;
 }
 
 interface Plan {
@@ -242,12 +243,19 @@ export default function AdminEnquiries() {
                   <Badge tone={TONE[e.status] ?? 'gray'}>{e.status.replace('_', ' ')}</Badge>
                 </div>
 
-                {(e.businessName || e.businessType) && (
-                  <div className="mt-2.5 inline-flex items-center gap-1.5 rounded-lg bg-slate-500/10 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    <span>{e.businessName}</span>
-                    {e.businessType && <span className="text-slate-400 font-normal">({e.businessType})</span>}
-                  </div>
-                )}
+                <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                  {(e.businessName || e.businessType) && (
+                    <div className="inline-flex items-center gap-1.5 rounded-lg bg-slate-500/10 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      <span>{e.businessName}</span>
+                      {e.businessType && <span className="text-slate-400 font-normal">({e.businessType})</span>}
+                    </div>
+                  )}
+                  {e.planId && (
+                    <span className="inline-flex items-center gap-1 rounded-lg bg-brand-500/10 px-2.5 py-1 text-xs font-semibold text-brand-700 dark:text-brand-300">
+                      💳 {plans?.find((p) => p.id === e.planId)?.title ?? 'Plan selected'}
+                    </span>
+                  )}
+                </div>
 
                 {e.message && (
                   <p className="mt-3 rounded-xl bg-white/40 p-3 text-xs text-slate-700 italic border border-slate-200/50 dark:bg-white/[0.02] dark:border-white/5 dark:text-slate-300">
@@ -298,7 +306,7 @@ export default function AdminEnquiries() {
                 {e.status !== 'CONVERTED' && (
                   <div className="mt-3.5 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.04] p-3">
                     <Select
-                      value={selectedPlan[e.id] ?? ''}
+                      value={selectedPlan[e.id] ?? e.planId ?? ''}
                       className="min-w-[160px] flex-1 text-xs py-1"
                       onChange={(ev) => setSelectedPlan((s) => ({ ...s, [e.id]: ev.target.value }))}
                     >
@@ -307,8 +315,8 @@ export default function AdminEnquiries() {
                     </Select>
                     <Button
                       className="text-xs px-3 py-1.5"
-                      disabled={!selectedPlan[e.id] || approveMutation.isPending}
-                      onClick={() => approveMutation.mutate({ id: e.id, planId: selectedPlan[e.id] })}
+                      disabled={!(selectedPlan[e.id] ?? e.planId) || approveMutation.isPending}
+                      onClick={() => approveMutation.mutate({ id: e.id, planId: selectedPlan[e.id] ?? e.planId ?? '' })}
                     >
                       {approveMutation.isPending ? 'Activating...' : '✅ Approve & Activate'}
                     </Button>
