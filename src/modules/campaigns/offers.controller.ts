@@ -41,6 +41,26 @@ export class OffersController {
     return this.offersService.getMessages(id, null);
   }
 
+  /** Re-sends a single FAILED CampaignMessage — updates its status to SENT on success. */
+  @Post(':id/messages/:messageId/retry')
+  async retryMessage(
+    @Param('id') id: string,
+    @Param('messageId') messageId: string,
+    @CurrentUser() admin: AuthenticatedUser,
+    @Req() req: any,
+  ) {
+    const result = await this.offersService.retryFailedMessage(id, messageId, null);
+    await this.auditLogService.record({
+      adminId: admin.userId,
+      action: 'OFFER_CAMPAIGN_MESSAGE_RETRIED',
+      targetType: 'CampaignMessage',
+      targetId: messageId,
+      metadata: { campaignId: id, sent: result.sent },
+      ipAddress: req.ip,
+    });
+    return result;
+  }
+
   @Post()
   create(@Body() dto: CreateOfferDto) {
     return this.offersService.create(
@@ -144,7 +164,9 @@ export class OffersController {
     return { queued: true };
   }
 
-  /** Moves the campaign to trash — blocked while RUNNING. Restorable until permanently deleted. */
+  /** Moves the campaign to trash — safe at any status including RUNNING (the in-flight
+   *  background job keeps sending to completion and still records every result).
+   *  Restorable from Trash until permanently deleted. */
   @Delete(':id')
   async moveToTrash(@Param('id') id: string, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
     const result = await this.offersService.moveToTrash(id, null);

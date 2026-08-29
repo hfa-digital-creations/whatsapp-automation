@@ -157,13 +157,14 @@ export class OffersService {
     });
   }
 
-  /** Blocked while RUNNING so a trash action can never race an in-progress batched send. Media/history are kept in case of restore. */
+  /**
+   * Trashing a RUNNING campaign doesn't stop its in-flight batched send — the queued job
+   * keeps sending to whoever's left and still marks itself COMPLETED — it only hides the
+   * campaign from the active list. Media/history are kept in case of restore.
+   */
   async moveToTrash(campaignId: string, ownerClientId: string | null = null) {
     const campaign = await this.campaignsService.getById(campaignId, ownerClientId);
     if (campaign.type !== CampaignType.OFFER) throw new BadRequestException('Not an offer campaign.');
-    if (campaign.status === CampaignStatus.RUNNING) {
-      throw new BadRequestException('This campaign is currently sending — wait for it to finish before deleting it.');
-    }
     return this.campaignsService.softDelete(campaignId, ownerClientId);
   }
 
@@ -224,6 +225,61 @@ export class OffersService {
     });
     if (!whatsappSent) throw new BadRequestException('Could not send the message — check the number and WhatsApp connection.');
     return { sent: true };
+  }
+
+  /**
+   * Retries a single FAILED CampaignMessage — looks up the original recipient details,
+   * re-sends via the same notification path as the batch loop, and updates the record
+   * from FAILED → SENT (or leaves it FAILED if it fails again).
+   */
+  async retryFailedMessage(campaignId: string, messageId: string, ownerClientId: string | null = null): Promise<{ sent: boolean }> {
+    // Ownership check — throws NotFoundException if scope doesn't match.
+    const campaign = await this.campaignsService.getById(campaignId, ownerClientId);
+    if (campaign.type !== CampaignType.OFFER) throw new BadRequestException('Not an offer campaign.');
+
+    const msg = await this.prisma.campaignMessage.findUnique({
+      where: { id: messageId },
+      include: { client: { include: { user: true } } },
+    });
+    if (!msg || msg.campaignId !== campaignId) throw new BadRequestException('Message not found in this campaign.');
+    if (msg.status !== MessageStatus.FAILED) throw new BadRequestException('Only FAILED messages can be retried.');
+
+    // Resolve recipient details — prefer the registered client's info, fall back to
+    // the manually-entered phone number stored on the message itself.
+    const phone: string | null = msg.client?.user.phone ?? msg.recipientPhone ?? null;
+    const email: string | null | undefined = msg.client?.user.email;
+    if (!phone && !email) throw new BadRequestException('No contact details available to retry this message.');
+
+    const config = campaign.config as OfferCampaignConfig | null;
+    const media =
+      config?.mediaUrl && config.mediaFileName
+        ? { filePath: this.resolveMediaPath(config.mediaUrl), fileName: config.mediaFileName }
+        : null;
+
+    let whatsappSent = false;
+    try {
+      const result = await this.notificationsService.sendCustom({
+        email: email ?? undefined,
+        phone,
+        subject: campaign.name,
+        emailHtml: email ? `<p>${msg.content}</p>` : undefined,
+        whatsappMessage: msg.content,
+        media: media ?? undefined,
+      });
+      whatsappSent = result.emailSent || result.whatsappSent;
+    } catch (err: any) {
+      this.logger.warn(`Retry failed for message ${messageId}: ${err.message}`);
+    }
+
+    await this.prisma.campaignMessage.update({
+      where: { id: messageId },
+      data: {
+        status: whatsappSent ? MessageStatus.SENT : MessageStatus.FAILED,
+        sentAt: whatsappSent ? new Date() : undefined,
+      },
+    });
+
+    return { sent: whatsappSent };
   }
 
   /** AI-drafted broadcast copy from a short prompt — a starting point the caller can still edit before sending. */
