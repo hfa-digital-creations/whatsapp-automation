@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
-import { Badge, Button, Card, ErrorText, Pagination, Select, Spinner, Tabs, Textarea } from '../../components/ui';
+import { Badge, Button, Card, ErrorText, Input, Pagination, Select, Spinner, Tabs, Textarea } from '../../components/ui';
 import { usePagination } from '../../lib/usePagination';
 
 interface Enquiry {
@@ -64,6 +64,8 @@ export default function AdminEnquiries() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<Record<string, string>>({});
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', phone: '', email: '' });
   const [error, setError] = useState('');
 
   const { data: enquiries, isLoading } = useQuery<Enquiry[]>({
@@ -122,6 +124,27 @@ export default function AdminEnquiries() {
     onError: (err) => setError(apiErrorMessage(err)),
   });
 
+  /**
+   * Corrects contact-detail typos — most importantly a phone number submitted without its
+   * country code, which otherwise silently "succeeds" against whatever WhatsApp account
+   * that bare digit string actually belongs to, not the real prospect.
+   */
+  const updateMutation = useMutation({
+    mutationFn: ({ id, dto }: { id: string; dto: typeof editForm }) => api.patch(`/admin/enquiries/${id}`, dto),
+    onSuccess: () => {
+      setError('');
+      setEditingId(null);
+      queryClient.invalidateQueries({ queryKey: ['admin-enquiries'] });
+    },
+    onError: (err) => setError(apiErrorMessage(err)),
+  });
+
+  function startEdit(e: Enquiry) {
+    setEditingId(e.id);
+    setEditForm({ name: e.name, phone: e.phone, email: e.email ?? '' });
+    setError('');
+  }
+
   const { page, setPage, totalPages, pageItems } = usePagination(enquiries, 10);
 
   return (
@@ -163,12 +186,58 @@ export default function AdminEnquiries() {
 
             <Card key={e.id} hoverEffect className="p-6 flex flex-col justify-between">
               <div>
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-base font-bold text-slate-900 dark:text-white">{e.name}</p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">
-                      {e.phone}{e.email ? ` · ${e.email}` : ''}
-                    </p>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-base font-bold text-slate-900 dark:text-white">{e.name}</p>
+                      <button
+                        type="button"
+                        title="Edit contact details"
+                        onClick={() => (editingId === e.id ? setEditingId(null) : startEdit(e))}
+                        className="text-slate-400 hover:text-brand-600 dark:hover:text-brand-400"
+                      >
+                        ✏️
+                      </button>
+                    </div>
+                    {editingId === e.id ? (
+                      <div className="mt-1.5 space-y-1.5">
+                        <Input
+                          placeholder="Name"
+                          value={editForm.name}
+                          onChange={(ev) => setEditForm((f) => ({ ...f, name: ev.target.value }))}
+                          className="text-xs py-1"
+                        />
+                        <Input
+                          placeholder="Phone with country code, e.g. +919876543210"
+                          value={editForm.phone}
+                          onChange={(ev) => setEditForm((f) => ({ ...f, phone: ev.target.value }))}
+                          className="text-xs py-1"
+                        />
+                        <Input
+                          type="email"
+                          placeholder="Email"
+                          value={editForm.email}
+                          onChange={(ev) => setEditForm((f) => ({ ...f, email: ev.target.value }))}
+                          className="text-xs py-1"
+                        />
+                        <div className="flex items-center gap-2">
+                          <Button
+                            className="text-xs px-2.5 py-1"
+                            disabled={updateMutation.isPending}
+                            onClick={() => updateMutation.mutate({ id: e.id, dto: editForm })}
+                          >
+                            {updateMutation.isPending ? 'Saving...' : 'Save'}
+                          </Button>
+                          <Button variant="secondary" className="text-xs px-2.5 py-1" onClick={() => setEditingId(null)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-500 dark:text-slate-400 font-mono">
+                        {e.phone}{e.email ? ` · ${e.email}` : ''}
+                      </p>
+                    )}
                   </div>
                   <Badge tone={TONE[e.status] ?? 'gray'}>{e.status.replace('_', ' ')}</Badge>
                 </div>
