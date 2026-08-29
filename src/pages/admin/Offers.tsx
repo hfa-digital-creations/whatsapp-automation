@@ -79,6 +79,8 @@ function CampaignMessagesPanel({ campaignId, isRunning }: { campaignId: string; 
   const [activeTab, setActiveTab] = useState<'progress' | 'failed'>(isRunning ? 'progress' : 'failed');
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [retryResults, setRetryResults] = useState<Record<string, 'ok' | 'err'>>({});
+  const [retryAllPending, setRetryAllPending] = useState(false);
+  const [retryAllError, setRetryAllError] = useState('');
 
   // A RUNNING campaign flips to COMPLETED under this same mounted panel (the list
   // polls every 5s) — the Progress tab disappears with it, so jump to Failed rather
@@ -107,6 +109,28 @@ function CampaignMessagesPanel({ campaignId, isRunning }: { campaignId: string; 
       setRetryResults((r) => ({ ...r, [messageId]: 'err' }));
     } finally {
       setRetryingId(null);
+    }
+  }
+
+  /**
+   * Queues a background retry of every FAILED message — same batching/throttle as a fresh
+   * send, so this flips the campaign to RUNNING rather than resolving immediately. The
+   * campaigns list isn't currently polling (nothing was RUNNING before this), so it has to
+   * be invalidated explicitly here or the UI would never notice the status change and pick
+   * up its own 5s polling loop.
+   */
+  async function handleRetryAll() {
+    setRetryAllPending(true);
+    setRetryAllError('');
+    try {
+      await api.post(`/admin/offers/${campaignId}/messages/retry-all`);
+      setRetryResults({});
+      queryClient.invalidateQueries({ queryKey: ['admin-offers'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-offer-messages', campaignId] });
+    } catch (err) {
+      setRetryAllError(apiErrorMessage(err));
+    } finally {
+      setRetryAllPending(false);
     }
   }
 
@@ -162,9 +186,22 @@ function CampaignMessagesPanel({ campaignId, isRunning }: { campaignId: string; 
       {/* Failed tab */}
       {activeTab === 'failed' && failed > 0 && (
         <div className="space-y-1.5">
-          <p className="text-[11px] text-slate-400 dark:text-slate-500">
-            These contacts did not receive the message. Click Retry to re-attempt.
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] text-slate-400 dark:text-slate-500">
+              These contacts did not receive the message. Retry one, or all of them at once.
+            </p>
+            {!isRunning && (
+              <button
+                type="button"
+                disabled={retryAllPending}
+                onClick={handleRetryAll}
+                className="shrink-0 rounded-full bg-rose-500/10 px-2.5 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-500/20 disabled:opacity-50 dark:text-rose-300"
+              >
+                {retryAllPending ? 'Queuing…' : `↺ Retry All (${failed})`}
+              </button>
+            )}
+          </div>
+          {retryAllError && <p className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">{retryAllError}</p>}
           <div className="max-h-52 overflow-y-auto space-y-1 rounded-xl border border-rose-200/50 bg-rose-50/40 p-2 dark:border-rose-500/20 dark:bg-rose-500/5">
             {failedMessages.map((m) => {
               const label = recipientLabel(m);

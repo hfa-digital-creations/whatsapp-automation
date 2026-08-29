@@ -24,6 +24,7 @@ export default function AdminPlans() {
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
   const [showCreate, setShowCreate] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [reorderingId, setReorderingId] = useState<string | null>(null);
 
   const { data: plans } = useQuery<Plan[]>({
     queryKey: ['admin-plans'],
@@ -78,6 +79,40 @@ export default function AdminPlans() {
     mutationFn: (id: string) => api.delete(`/admin/plans/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-plans'] }),
   });
+
+  /**
+   * `plans` already comes back ordered by displayOrder (see PlansService.list), so it's
+   * the source of truth for rank — swap the moved plan with its neighbor in that full,
+   * unfiltered order, then re-save displayOrder as a clean 0..n-1 sequence for every plan
+   * whose position actually changed. Recomputing the whole sequence (rather than just
+   * swapping two raw values) also self-heals plans that were never given a distinct
+   * displayOrder before this feature existed and are all sitting at the same value.
+   */
+  async function movePlan(planId: string, direction: 'up' | 'down') {
+    if (!plans || reorderingId) return;
+    const idx = plans.findIndex((p) => p.id === planId);
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (idx === -1 || targetIdx < 0 || targetIdx >= plans.length) return;
+
+    const reordered = [...plans];
+    [reordered[idx], reordered[targetIdx]] = [reordered[targetIdx], reordered[idx]];
+
+    setReorderingId(planId);
+    setError('');
+    try {
+      await Promise.all(
+        reordered
+          .map((p, i) => ({ p, i }))
+          .filter(({ p, i }) => p.displayOrder !== i)
+          .map(({ p, i }) => api.patch(`/admin/plans/${p.id}`, { displayOrder: i })),
+      );
+      queryClient.invalidateQueries({ queryKey: ['admin-plans'] });
+    } catch (err) {
+      setError(apiErrorMessage(err));
+    } finally {
+      setReorderingId(null);
+    }
+  }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -252,17 +287,51 @@ export default function AdminPlans() {
         />
       </div>
 
+      {activeFilter !== 'ALL' && (
+        <p className="text-[11px] text-slate-400">Switch to "All Plans" to reorder — reordering compares against the full plan list.</p>
+      )}
+
       {/* Plan Cards Grid */}
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 animate-tab-content">
-        {pageItems.map((plan) => (
+        {pageItems.map((plan) => {
+          const rank = plans?.findIndex((p) => p.id === plan.id) ?? -1;
+          const isFirst = rank <= 0;
+          const isLast = rank === (plans?.length ?? 0) - 1;
+          return (
           <Card key={plan.id} hoverEffect className="flex flex-col justify-between p-6">
             <div>
-              <div className="flex items-start justify-between">
+              <div className="flex items-start justify-between gap-2">
                 <div>
                   <h3 className="text-lg font-bold text-slate-900 dark:text-white">{plan.title}</h3>
                   <p className="text-xs font-mono text-slate-400">{plan.name}</p>
                 </div>
-                <Badge tone={plan.status === 'ACTIVE' ? 'green' : 'gray'}>{plan.status}</Badge>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {activeFilter === 'ALL' && (
+                    <div className="flex flex-col gap-0.5">
+                      <button
+                        type="button"
+                        title="Move up"
+                        aria-label="Move up"
+                        disabled={isFirst || reorderingId !== null}
+                        onClick={() => movePlan(plan.id, 'up')}
+                        className="rounded-md px-1 text-xs text-slate-400 hover:text-brand-600 disabled:opacity-25 disabled:hover:text-slate-400 dark:hover:text-brand-400"
+                      >
+                        ▲
+                      </button>
+                      <button
+                        type="button"
+                        title="Move down"
+                        aria-label="Move down"
+                        disabled={isLast || reorderingId !== null}
+                        onClick={() => movePlan(plan.id, 'down')}
+                        className="rounded-md px-1 text-xs text-slate-400 hover:text-brand-600 disabled:opacity-25 disabled:hover:text-slate-400 dark:hover:text-brand-400"
+                      >
+                        ▼
+                      </button>
+                    </div>
+                  )}
+                  <Badge tone={plan.status === 'ACTIVE' ? 'green' : 'gray'}>{plan.status}</Badge>
+                </div>
               </div>
               <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 line-clamp-2">{plan.shortDescription || 'No description'}</p>
 
@@ -304,7 +373,8 @@ export default function AdminPlans() {
               </Button>
             </div>
           </Card>
-        ))}
+          );
+        })}
         {filteredPlans?.length === 0 && (
           <div className="col-span-full py-12 text-center text-xs text-slate-400">
             No subscription plans found matching the selected filter.
