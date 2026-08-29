@@ -349,6 +349,24 @@ export class WhatsappSessionManagerService implements OnModuleInit, OnModuleDest
   }
 
   /**
+   * Resolves a bare phone number to the chat ID WhatsApp will actually accept for it.
+   * A contact's real, addressable identity may be a phone-based "@c.us" JID or a
+   * privacy-preserving "@lid" one — only WhatsApp's own server-side lookup knows which;
+   * guessing "@c.us" from the digits (the old behavior here) gets flatly rejected with
+   * "No LID for user" for any contact whose real identity is a LID, which is an
+   * increasingly common WhatsApp privacy rollout, not a rare edge case. A value that
+   * already contains "@" is assumed to already be a resolved JID (e.g. replying to an
+   * inbound message, whose `fromPhone` we store and reply to unchanged) and is used as-is.
+   * Returns null if the number isn't registered on WhatsApp at all.
+   */
+  private async resolveChatId(client: any, toPhone: string): Promise<string | null> {
+    if (toPhone.includes('@')) return toPhone;
+    const digits = toPhone.replace(/\D/g, '');
+    const wid = await client.getNumberId(digits);
+    return wid?._serialized ?? null;
+  }
+
+  /**
    * Used for system/transactional messages (activation credentials, reminders).
    * Best-effort: resolves with sent: false instead of throwing if the session isn't
    * connected, so callers can fall back to email without failing the whole operation.
@@ -363,14 +381,8 @@ export class WhatsappSessionManagerService implements OnModuleInit, OnModuleDest
       return { sent: false, reason: `WhatsApp session is ${handle.status.toLowerCase()}, not connected.` };
     }
     try {
-      // toPhone is sometimes already a full WhatsApp JID — inbound messages from a
-      // contact WhatsApp only exposes via their privacy-preserving Linked ID (not a
-      // real phone number) arrive as "<id>@lid", and that's what we store/reply to.
-      // Stripping it down to digits and forcing "@c.us" produces a chat ID for a
-      // phone number that was never actually the contact's identity, which WhatsApp
-      // rejects outright ("No LID for user"). Only build a @c.us JID when we were
-      // given a bare phone number (system notifications, activation messages, etc.).
-      const chatId = toPhone.includes('@') ? toPhone : `${toPhone.replace(/\D/g, '')}@c.us`;
+      const chatId = await this.resolveChatId(handle.client, toPhone);
+      if (!chatId) return { sent: false, reason: 'This phone number is not registered on WhatsApp.' };
       await handle.client.sendMessage(chatId, message);
       return { sent: true };
     } catch (err: any) {
@@ -387,7 +399,8 @@ export class WhatsappSessionManagerService implements OnModuleInit, OnModuleDest
       return { sent: false, reason: `WhatsApp session is ${handle.status.toLowerCase()}, not connected.` };
     }
     try {
-      const chatId = toPhone.includes('@') ? toPhone : `${toPhone.replace(/\D/g, '')}@c.us`;
+      const chatId = await this.resolveChatId(handle.client, toPhone);
+      if (!chatId) return { sent: false, reason: 'This phone number is not registered on WhatsApp.' };
       const media = MessageMedia.fromFilePath(filePath);
       await handle.client.sendMessage(chatId, media, caption ? { caption } : undefined);
       return { sent: true };
