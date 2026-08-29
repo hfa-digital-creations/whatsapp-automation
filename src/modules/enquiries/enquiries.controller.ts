@@ -7,6 +7,7 @@ import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { EnquiriesService } from './enquiries.service';
 import { CreateEnquiryDto } from './dto/create-enquiry.dto';
+import { UpdateEnquiryDto } from './dto/update-enquiry.dto';
 
 @Controller()
 export class EnquiriesController {
@@ -36,6 +37,21 @@ export class EnquiriesController {
   @Patch('admin/enquiries/:id/status')
   updateStatus(@Param('id') id: string, @Body('status') status: EnquiryStatus) {
     return this.enquiriesService.updateStatus(id, status);
+  }
+
+  /** Corrects contact-detail typos (most commonly a phone number missing its country code). */
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Patch('admin/enquiries/:id')
+  async update(@Param('id') id: string, @Body() dto: UpdateEnquiryDto, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
+    const result = await this.enquiriesService.update(id, dto);
+    await this.auditLogService.record({
+      adminId: admin.userId,
+      action: 'ENQUIRY_DETAILS_CORRECTED',
+      targetType: 'Enquiry',
+      targetId: id,
+      ipAddress: req.ip,
+    });
+    return result;
   }
 
   /** The admin's whole job for converting a lead: pick a plan, click once — see EnquiriesService.approveAndActivate(). */

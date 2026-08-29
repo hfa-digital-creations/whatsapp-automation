@@ -5,6 +5,7 @@ import { AiService } from '../../common/services/ai.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EnquiryAutomationService } from './enquiry-automation.service';
 import { CreateEnquiryDto } from './dto/create-enquiry.dto';
+import { UpdateEnquiryDto } from './dto/update-enquiry.dto';
 import { ClientsService } from '../clients/clients.service';
 import { TrainingService } from '../training/training.service';
 
@@ -75,6 +76,15 @@ export class EnquiriesService {
 
   getMessages(id: string) {
     return this.enquiryAutomation.getMessages(id);
+  }
+
+  /** Corrects contact-detail typos on an existing enquiry — most commonly a phone number
+   *  submitted without its country code (see UpdateEnquiryDto), which otherwise silently
+   *  sends WhatsApp messages nowhere near the actual prospect. */
+  async update(id: string, dto: UpdateEnquiryDto) {
+    const enquiry = await this.prisma.enquiry.findUnique({ where: { id } });
+    if (!enquiry) throw new NotFoundException('Enquiry not found.');
+    return this.prisma.enquiry.update({ where: { id }, data: dto });
   }
 
   async updateStatus(id: string, status: EnquiryStatus) {
