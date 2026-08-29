@@ -78,7 +78,7 @@ function CampaignMessagesPanel({ campaignId, isRunning }: { campaignId: string; 
   // Default to 'failed' tab for completed campaigns; progress for running ones.
   const [activeTab, setActiveTab] = useState<'progress' | 'failed'>(isRunning ? 'progress' : 'failed');
   const [retryingId, setRetryingId] = useState<string | null>(null);
-  const [retryResults, setRetryResults] = useState<Record<string, 'ok' | 'err'>>({});
+  const [retryResults, setRetryResults] = useState<Record<string, { status: 'ok' | 'err'; reason?: string }>>({});
   const [retryAllPending, setRetryAllPending] = useState(false);
   const [retryAllError, setRetryAllError] = useState('');
 
@@ -103,10 +103,11 @@ function CampaignMessagesPanel({ campaignId, isRunning }: { campaignId: string; 
     setRetryingId(messageId);
     try {
       const res = await api.post(`/admin/offers/${campaignId}/messages/${messageId}/retry`);
-      setRetryResults((r) => ({ ...r, [messageId]: res.data.data?.sent ? 'ok' : 'err' }));
+      const { sent, reason } = res.data.data ?? {};
+      setRetryResults((r) => ({ ...r, [messageId]: { status: sent ? 'ok' : 'err', reason } }));
       queryClient.invalidateQueries({ queryKey: ['admin-offer-messages', campaignId] });
-    } catch {
-      setRetryResults((r) => ({ ...r, [messageId]: 'err' }));
+    } catch (err) {
+      setRetryResults((r) => ({ ...r, [messageId]: { status: 'err', reason: apiErrorMessage(err) } }));
     } finally {
       setRetryingId(null);
     }
@@ -207,34 +208,44 @@ function CampaignMessagesPanel({ campaignId, isRunning }: { campaignId: string; 
               const label = recipientLabel(m);
               const result = retryResults[m.id];
               return (
-                <div
-                  key={m.id}
-                  className="flex items-center justify-between gap-2 rounded-lg bg-white/60 px-2.5 py-1.5 text-xs dark:bg-white/[0.03]"
-                >
-                  <div className="min-w-0">
-                    <p className="font-semibold text-slate-800 dark:text-slate-100 truncate">{label}</p>
-                    <p className="truncate text-slate-400 font-mono text-[10px]">
-                      {m.recipientPhone ?? m.client?.businessName ?? ''}
-                    </p>
+                <div key={m.id} className="rounded-lg bg-white/60 px-2.5 py-1.5 text-xs dark:bg-white/[0.03]">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-800 dark:text-slate-100 truncate">{label}</p>
+                      <p className="truncate text-slate-400 font-mono text-[10px]">
+                        {m.recipientPhone ?? m.client?.businessName ?? ''}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {result?.status === 'ok' && (
+                        <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">✓ Sent</span>
+                      )}
+                      {result?.status === 'err' && (
+                        <button
+                          type="button"
+                          disabled={retryingId === m.id}
+                          onClick={() => handleRetry(m.id)}
+                          title={result.reason}
+                          className="rounded-full bg-rose-500/10 px-2.5 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-500/20 disabled:opacity-50 dark:text-rose-300"
+                        >
+                          {retryingId === m.id ? 'Retrying…' : '✗ Failed again — Retry'}
+                        </button>
+                      )}
+                      {!result && (
+                        <button
+                          type="button"
+                          disabled={retryingId === m.id}
+                          onClick={() => handleRetry(m.id)}
+                          className="rounded-full bg-brand-500/10 px-2.5 py-1 text-[11px] font-semibold text-brand-700 hover:bg-brand-500/20 disabled:opacity-50 dark:text-brand-300"
+                        >
+                          {retryingId === m.id ? 'Retrying…' : '↺ Retry'}
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    {result === 'ok' && (
-                      <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">✓ Sent</span>
-                    )}
-                    {result === 'err' && (
-                      <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">✗ Failed again</span>
-                    )}
-                    {!result && (
-                      <button
-                        type="button"
-                        disabled={retryingId === m.id}
-                        onClick={() => handleRetry(m.id)}
-                        className="rounded-full bg-brand-500/10 px-2.5 py-1 text-[11px] font-semibold text-brand-700 hover:bg-brand-500/20 disabled:opacity-50 dark:text-brand-300"
-                      >
-                        {retryingId === m.id ? 'Retrying…' : '↺ Retry'}
-                      </button>
-                    )}
-                  </div>
+                  {result?.status === 'err' && result.reason && (
+                    <p className="mt-0.5 truncate text-[10px] text-rose-500/80 dark:text-rose-400/80">{result.reason}</p>
+                  )}
                 </div>
               );
             })}
