@@ -1,4 +1,4 @@
-import { useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
 import { Badge, Button, Card, ErrorText, Input, Pagination, Select, Spinner, Tabs, Textarea } from '../../components/ui';
@@ -15,7 +15,15 @@ interface Campaign {
 }
 
 interface CampaignMessage {
-  id: string; status: string; clientId: string | null;
+  id: string;
+  status: string;
+  clientId: string | null;
+  recipientPhone: string | null;
+  recipientName: string | null;
+  content: string;
+  sentAt: string | null;
+  createdAt: string;
+  client: { businessName: string } | null;
 }
 
 interface ClientOption {
@@ -51,26 +59,152 @@ const STATUS_TONE: Record<string, 'gray' | 'green' | 'amber' | 'blue'> = {
   DRAFT: 'gray', SCHEDULED: 'blue', RUNNING: 'amber', COMPLETED: 'green', CANCELLED: 'gray',
 };
 
+/** Derives a human-readable label for the recipient of a campaign message. */
+function recipientLabel(m: CampaignMessage): string {
+  if (m.client?.businessName) return m.client.businessName;
+  if (m.recipientName && m.recipientPhone) return `${m.recipientName} (${m.recipientPhone})`;
+  if (m.recipientPhone) return m.recipientPhone;
+  return 'Unknown contact';
+}
+
 const MEDIA_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,video/mp4,video/quicktime,video/3gpp,application/pdf';
 
 /**
- * Sending now runs as a background job (batches of 5 with multi-minute pauses to stay
- * safe from WhatsApp's automated-behavior detection), so a RUNNING campaign can take
- * several minutes to finish — this polls the recorded messages so the admin sees live
- * progress instead of a single delayed result.
+ * Shows live progress for RUNNING campaigns and a persistent "Failed" tab for any
+ * campaign that has FAILED messages — lets the admin retry individual contacts.
  */
-function CampaignProgress({ campaignId }: { campaignId: string }) {
+function CampaignMessagesPanel({ campaignId, isRunning }: { campaignId: string; isRunning: boolean }) {
+  const queryClient = useQueryClient();
+  // Default to 'failed' tab for completed campaigns; progress for running ones.
+  const [activeTab, setActiveTab] = useState<'progress' | 'failed'>(isRunning ? 'progress' : 'failed');
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [retryResults, setRetryResults] = useState<Record<string, 'ok' | 'err'>>({});
+
+  // A RUNNING campaign flips to COMPLETED under this same mounted panel (the list
+  // polls every 5s) — the Progress tab disappears with it, so jump to Failed rather
+  // than leaving the admin stuck on a tab with no button and no content.
+  useEffect(() => {
+    if (!isRunning) setActiveTab('failed');
+  }, [isRunning]);
+
   const { data: messages } = useQuery<CampaignMessage[]>({
     queryKey: ['admin-offer-messages', campaignId],
     queryFn: async () => (await api.get(`/admin/offers/${campaignId}/messages`)).data.data,
-    refetchInterval: 5000,
+    refetchInterval: isRunning ? 5000 : false,
   });
+
   const sent = messages?.filter((m) => m.status === 'SENT').length ?? 0;
   const failed = messages?.filter((m) => m.status === 'FAILED').length ?? 0;
+  const failedMessages = messages?.filter((m) => m.status === 'FAILED') ?? [];
+
+  async function handleRetry(messageId: string) {
+    setRetryingId(messageId);
+    try {
+      const res = await api.post(`/admin/offers/${campaignId}/messages/${messageId}/retry`);
+      setRetryResults((r) => ({ ...r, [messageId]: res.data.data?.sent ? 'ok' : 'err' }));
+      queryClient.invalidateQueries({ queryKey: ['admin-offer-messages', campaignId] });
+    } catch {
+      setRetryResults((r) => ({ ...r, [messageId]: 'err' }));
+    } finally {
+      setRetryingId(null);
+    }
+  }
+
+  // Only bail when data has finished loading — while messages is undefined (fetching),
+  // failed is 0, which would incorrectly hide the panel for completed campaigns with
+  // failures. We also skip RUNNING campaigns even before data loads (they always show).
+  if (messages !== undefined && !isRunning && failed === 0) return null;
+  // Nothing to show until the first fetch completes on a non-running campaign.
+  if (messages === undefined && !isRunning) return null;
+
   return (
-    <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">
-      Sending in background — {sent} sent{failed > 0 ? `, ${failed} failed` : ''} so far...
-    </p>
+    <div className="mt-4 border-t border-slate-100 pt-3 dark:border-white/5 space-y-2">
+      {/* Tab switcher */}
+      <div className="flex items-center gap-1">
+        {isRunning && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('progress')}
+            className={`rounded-full px-3 py-1 text-[11px] font-semibold transition-all ${
+              activeTab === 'progress'
+                ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
+                : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+          >
+            ⏳ Progress
+          </button>
+        )}
+        {failed > 0 && (
+          <button
+            type="button"
+            onClick={() => setActiveTab('failed')}
+            className={`rounded-full px-3 py-1 text-[11px] font-semibold transition-all ${
+              activeTab === 'failed'
+                ? 'bg-rose-500/20 text-rose-700 dark:text-rose-300'
+                : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+          >
+            ❌ Failed ({failed})
+          </button>
+        )}
+      </div>
+
+      {/* Progress tab */}
+      {activeTab === 'progress' && isRunning && (
+        <div className="flex items-center gap-2">
+          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-500" />
+          <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">
+            Sending in background — {sent} sent{failed > 0 ? `, ${failed} failed` : ''} so far…
+          </p>
+        </div>
+      )}
+
+      {/* Failed tab */}
+      {activeTab === 'failed' && failed > 0 && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] text-slate-400 dark:text-slate-500">
+            These contacts did not receive the message. Click Retry to re-attempt.
+          </p>
+          <div className="max-h-52 overflow-y-auto space-y-1 rounded-xl border border-rose-200/50 bg-rose-50/40 p-2 dark:border-rose-500/20 dark:bg-rose-500/5">
+            {failedMessages.map((m) => {
+              const label = recipientLabel(m);
+              const result = retryResults[m.id];
+              return (
+                <div
+                  key={m.id}
+                  className="flex items-center justify-between gap-2 rounded-lg bg-white/60 px-2.5 py-1.5 text-xs dark:bg-white/[0.03]"
+                >
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-800 dark:text-slate-100 truncate">{label}</p>
+                    <p className="truncate text-slate-400 font-mono text-[10px]">
+                      {m.recipientPhone ?? m.client?.businessName ?? ''}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {result === 'ok' && (
+                      <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">✓ Sent</span>
+                    )}
+                    {result === 'err' && (
+                      <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">✗ Failed again</span>
+                    )}
+                    {!result && (
+                      <button
+                        type="button"
+                        disabled={retryingId === m.id}
+                        onClick={() => handleRetry(m.id)}
+                        className="rounded-full bg-brand-500/10 px-2.5 py-1 text-[11px] font-semibold text-brand-700 hover:bg-brand-500/20 disabled:opacity-50 dark:text-brand-300"
+                      >
+                        {retryingId === m.id ? 'Retrying…' : '↺ Retry'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1222,10 +1356,8 @@ export default function AdminOffers() {
                 <CampaignMedia config={c.config} />
               </div>
 
-              {c.status === 'RUNNING' && (
-                <div className="mt-4 border-t border-slate-100 pt-3 dark:border-white/5">
-                  <CampaignProgress campaignId={c.id} />
-                </div>
+              {c.status !== 'DRAFT' && (
+                <CampaignMessagesPanel campaignId={c.id} isRunning={c.status === 'RUNNING'} />
               )}
 
               {c.status === 'DRAFT' && (
