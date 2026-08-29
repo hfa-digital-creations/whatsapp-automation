@@ -291,6 +291,7 @@ model Plan {
   planFeatures            PlanFeature[]
   payments               Payment[]
   activationHistory      ActivationHistory[]
+  enquiries              Enquiry[]
 
   @@index([status, displayOrder])
 }
@@ -591,10 +592,18 @@ model Enquiry {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
+  /// The single plan the prospect chose on the landing page form — drives the AI outreach/reply
+  /// conversation (see EnquiryAutomationService.buildSystemPrompt) and defaults the plan picker
+  /// in the admin's Approve & Activate flow. Nullable so enquiries submitted before this field
+  /// existed keep working with the previous generic, all-plans conversation.
+  planId String?
+  plan   Plan?   @relation(fields: [planId], references: [id], onDelete: SetNull)
+
   campaignMessages CampaignMessage[]
   messages         EnquiryMessage[]
 
   @@index([status])
+  @@index([planId])
 }
 
 /// Full WhatsApp conversation thread with a prospect — both the automatic pre-sales

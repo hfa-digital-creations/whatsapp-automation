@@ -22,6 +22,12 @@ export class CreateEnquiryDto {
   @IsEmail()
   email?: string;
 
+  /** Which plan they want — required so the AI outreach/reply conversation can center on it
+   * and gather what setting it up actually needs (see EnquiryAutomationService). Existence
+   * and ACTIVE status are checked in EnquiriesService.create(), not here (needs a DB lookup). */
+  @IsString()
+  planId: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(150)

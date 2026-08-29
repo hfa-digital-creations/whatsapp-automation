@@ -8,6 +8,7 @@ import { CreateEnquiryDto } from './dto/create-enquiry.dto';
 import { UpdateEnquiryDto } from './dto/update-enquiry.dto';
 import { ClientsService } from '../clients/clients.service';
 import { TrainingService } from '../training/training.service';
+import { PlansService } from '../plans/plans.service';
 
 /**
  * Turns the little the prospect told us on the landing page (industry + free-text
@@ -42,9 +43,18 @@ export class EnquiriesService {
     private readonly enquiryAutomation: EnquiryAutomationService,
     private readonly clientsService: ClientsService,
     private readonly trainingService: TrainingService,
+    private readonly plansService: PlansService,
   ) {}
 
   async create(dto: CreateEnquiryDto) {
+    // Every enquiry must point at a real, currently-published plan — it's what the AI
+    // outreach/reply conversation centers on (see EnquiryAutomationService.buildSystemPrompt)
+    // and what the admin's Approve & Activate flow defaults to.
+    const plans = await this.plansService.list({ publicOnly: true });
+    if (!plans.some((p) => p.id === dto.planId)) {
+      throw new BadRequestException('Select a valid plan.');
+    }
+
     const enquiry = await this.prisma.enquiry.create({ data: dto });
 
     const admins = await this.prisma.user.findMany({ where: { role: { in: ['SUPER_ADMIN', 'ADMIN'] } } });
@@ -105,8 +115,10 @@ export class EnquiriesService {
    * The admin's whole job for turning an enquiry into a paying client: pick a plan, click
    * once. Everything else — creating the account, drafting a starting knowledge base from
    * what the prospect already told us, and sending login credentials — happens here.
+   * `planId` is optional and defaults to the plan the prospect themselves chose on the
+   * landing form — the admin only needs to override it if they want a different plan.
    */
-  async approveAndActivate(enquiryId: string, planId: string, adminId: string, ipAddress?: string) {
+  async approveAndActivate(enquiryId: string, planId: string | undefined, adminId: string, ipAddress?: string) {
     const enquiry = await this.prisma.enquiry.findUnique({ where: { id: enquiryId } });
     if (!enquiry) throw new NotFoundException('Enquiry not found.');
     if (enquiry.status === EnquiryStatus.CONVERTED) {
@@ -117,12 +129,16 @@ export class EnquiriesService {
         'This enquiry has no email on file — a client login requires one. Ask the prospect for their email, or create the client manually from the Clients panel.',
       );
     }
+    const resolvedPlanId = planId ?? enquiry.planId ?? undefined;
+    if (!resolvedPlanId) {
+      throw new BadRequestException('Select a plan to activate.');
+    }
 
     const client = await this.clientsService.create({
       businessName: enquiry.businessName || enquiry.name,
       email: enquiry.email,
       phone: enquiry.phone,
-      planId,
+      planId: resolvedPlanId,
     });
 
     // Fire-and-forget — a slow/failed AI draft must never block or fail the activation
@@ -134,7 +150,7 @@ export class EnquiriesService {
     const activated = await this.clientsService.activate(
       client.id,
       adminId,
-      { planId, note: `Auto-created from enquiry ${enquiry.id}` },
+      { planId: resolvedPlanId, note: `Auto-created from enquiry ${enquiry.id}` },
       ipAddress,
     );
 

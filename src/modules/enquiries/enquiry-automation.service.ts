@@ -49,7 +49,7 @@ export class EnquiryAutomationService {
     private readonly plansService: PlansService,
   ) {}
 
-  private async buildSystemPrompt(): Promise<string> {
+  private async buildSystemPrompt(enquiry: Enquiry): Promise<string> {
     const plans = await this.plansService.list({ publicOnly: true });
     const plansText = plans.length
       ? plans
@@ -60,7 +60,23 @@ export class EnquiryAutomationService {
           .join('\n')
       : '(no published plans right now — tell them the team will share pricing directly)';
 
-    return `${PRODUCT_SYSTEM_PROMPT_BASE}\n\nCURRENT PRICING (only mention these real plans, never invent others):\n${plansText}`;
+    const chosenPlan = enquiry.planId ? plans.find((p) => p.id === enquiry.planId) : undefined;
+    const multiAccountLine =
+      chosenPlan && chosenPlan.whatsappAccountLimit > 1
+        ? ` This plan supports up to ${chosenPlan.whatsappAccountLimit} WhatsApp numbers — also ask how many they'll actually need.`
+        : '';
+    const planFocus = chosenPlan
+      ? `\n\nTHIS PROSPECT ALREADY CHOSE A PLAN ON THE SIGNUP FORM: "${chosenPlan.title}" (${chosenPlan.currency} ${chosenPlan.price} / ${chosenPlan.durationValue} ${chosenPlan.durationType.toLowerCase()}, up to ${chosenPlan.whatsappAccountLimit} WhatsApp account(s)). Included: ${
+          chosenPlan.planFeatures.length ? chosenPlan.planFeatures.map((pf) => pf.feature.name).join(', ') : 'no add-on features listed'
+        }.
+Center the conversation on this specific plan — don't re-pitch the others unless they ask. Your job now
+is to actively gather, one focused question at a time (never a survey-style list), whatever is genuinely
+needed to set their account up on it: their business's services/pricing/policies worth training the AI
+on.${multiAccountLine} Never ask for anything the platform doesn't actually use (see WHAT THE PRODUCT
+DOES above); if they've already told you something, don't ask again.`
+      : '';
+
+    return `${PRODUCT_SYSTEM_PROMPT_BASE}\n\nCURRENT PRICING (only mention these real plans, never invent others):\n${plansText}${planFocus}`;
   }
 
   private async recordMessage(enquiryId: string, direction: MessageDirection, content: string) {
@@ -78,7 +94,7 @@ export class EnquiryAutomationService {
       return;
     }
 
-    const systemPrompt = await this.buildSystemPrompt();
+    const systemPrompt = await this.buildSystemPrompt(enquiry);
     const prompt = `A prospect just submitted this enquiry — write your first message to them, introducing the
 product and responding to what they asked about.
 
@@ -157,7 +173,7 @@ Their message: ${enquiry.message ?? '(no message provided)'}`;
     await this.recordMessage(enquiry.id, MessageDirection.INBOUND, event.body);
 
     const [systemPrompt, history] = await Promise.all([
-      this.buildSystemPrompt(),
+      this.buildSystemPrompt(enquiry),
       this.prisma.enquiryMessage.findMany({ where: { enquiryId: enquiry.id }, orderBy: { createdAt: 'asc' }, take: 30 }),
     ]);
     const chatHistory = history.map((m) => ({

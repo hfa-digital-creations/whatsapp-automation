@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { EnquiryStatus, UserRole } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -54,23 +54,26 @@ export class EnquiriesController {
     return result;
   }
 
-  /** The admin's whole job for converting a lead: pick a plan, click once — see EnquiriesService.approveAndActivate(). */
+  /**
+   * The admin's whole job for converting a lead: pick a plan, click once — see
+   * EnquiriesService.approveAndActivate(). `planId` is optional here since it defaults to
+   * whichever plan the prospect themselves chose on the landing form.
+   */
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   @Post('admin/enquiries/:id/approve-and-activate')
   async approveAndActivate(
     @Param('id') id: string,
-    @Body('planId') planId: string,
+    @Body('planId') planId: string | undefined,
     @CurrentUser() admin: AuthenticatedUser,
     @Req() req: any,
   ) {
-    if (!planId) throw new BadRequestException('Select a plan to activate.');
     const client = await this.enquiriesService.approveAndActivate(id, planId, admin.userId, req.ip);
     await this.auditLogService.record({
       adminId: admin.userId,
       action: 'ENQUIRY_APPROVED_AND_ACTIVATED',
       targetType: 'Enquiry',
       targetId: id,
-      metadata: { clientId: client.id, planId },
+      metadata: { clientId: client.id, planId: planId ?? client.planId },
       ipAddress: req.ip,
     });
     return client;
