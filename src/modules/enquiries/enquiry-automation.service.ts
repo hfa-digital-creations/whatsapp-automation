@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
-import { AutomationMode, Enquiry, EnquiryStatus, MessageDirection, MessageStatus } from '@prisma/client';
+import { AutomationMode, Enquiry, EnquirySource, EnquiryStatus, MessageDirection, MessageStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { AiService } from '../../common/services/ai.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -339,7 +339,7 @@ Their message: ${enquiry.message ?? '(no message provided)'}`;
     if (!enquiry) {
       const phone = event.resolvedPhone ?? event.fromPhone.replace(/@.*/, '');
       enquiry = await this.prisma.enquiry.create({
-        data: { name: event.customerName || 'WhatsApp Contact', phone },
+        data: { name: event.customerName || 'WhatsApp Contact', phone, source: EnquirySource.WHATSAPP },
       });
       const admins = await this.prisma.user.findMany({ where: { role: { in: ['SUPER_ADMIN', 'ADMIN'] } } });
       await Promise.all(

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { EnquiryStatus, UserRole } from '@prisma/client';
+import { EnquirySource, EnquiryStatus, UserRole } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
@@ -24,11 +24,19 @@ export class EnquiriesController {
     return this.enquiriesService.create(dto);
   }
 
+  /** `source` defaults to LANDING_PAGE (see EnquiriesService.list) — pass `WHATSAPP` for the
+   * admin panel's separate tab of direct-message contacts. */
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   @Get('admin/enquiries')
-  list(@Query('status') status?: EnquiryStatus, @Query('skip') skip?: string, @Query('take') take?: string) {
+  list(
+    @Query('status') status?: EnquiryStatus,
+    @Query('source') source?: EnquirySource,
+    @Query('skip') skip?: string,
+    @Query('take') take?: string,
+  ) {
     return this.enquiriesService.list({
       status,
+      source,
       skip: skip ? Number(skip) : undefined,
       take: take ? Number(take) : undefined,
     });

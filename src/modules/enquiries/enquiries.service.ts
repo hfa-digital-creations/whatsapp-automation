@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Enquiry, EnquiryStatus, MessageStatus } from '@prisma/client';
+import { Enquiry, EnquirySource, EnquiryStatus, MessageStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { AiService } from '../../common/services/ai.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -79,9 +79,15 @@ export class EnquiriesService {
     return enquiry;
   }
 
-  list(params: { status?: EnquiryStatus; skip?: number; take?: number }) {
-    const { status, skip = 0, take = 50 } = params;
-    return this.prisma.enquiry.findMany({ where: { status }, orderBy: { createdAt: 'desc' }, skip, take });
+  /**
+   * `source` defaults to LANDING_PAGE — a direct WhatsApp message with no matching form
+   * submission (see EnquiryAutomationService.replyAsGeneralSalesExecutive) never shows up
+   * in the default Enquiries view; the admin panel explicitly asks for `source: WHATSAPP`
+   * to see those in their own separate tab.
+   */
+  list(params: { status?: EnquiryStatus; source?: EnquirySource; skip?: number; take?: number }) {
+    const { status, source = EnquirySource.LANDING_PAGE, skip = 0, take = 50 } = params;
+    return this.prisma.enquiry.findMany({ where: { status, source }, orderBy: { createdAt: 'desc' }, skip, take });
   }
 
   getMessages(id: string) {
