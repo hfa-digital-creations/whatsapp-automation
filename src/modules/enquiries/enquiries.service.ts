@@ -1,5 +1,5 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Enquiry, EnquiryStatus } from '@prisma/client';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Enquiry, EnquiryStatus, MessageStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { AiService } from '../../common/services/ai.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -157,6 +157,46 @@ export class EnquiriesService {
     await this.updateStatus(enquiryId, EnquiryStatus.CONVERTED);
 
     return activated;
+  }
+
+  /**
+   * Approves a QUEUED AI-drafted enquiry reply (enquiryAutomationMode DRAFT_APPROVE),
+   * optionally edited, and sends it — mirrors ConversationsService.approveDraft() exactly,
+   * just sending via the stored enquiry phone (notificationsService.sendCustom, the same
+   * path sendInitialOutreach already uses) rather than a per-client WhatsApp account.
+   */
+  async approveDraft(messageId: string, adminId: string, editedContent?: string) {
+    const message = await this.prisma.enquiryMessage.findUnique({ where: { id: messageId }, include: { enquiry: true } });
+    if (!message) throw new NotFoundException('Draft message not found.');
+    if (message.status !== MessageStatus.QUEUED) {
+      throw new ForbiddenException('This message has already been sent or discarded.');
+    }
+
+    const finalContent = editedContent?.trim() || message.content;
+    const result = await this.notificationsService.sendCustom({
+      phone: message.enquiry.phone,
+      subject: message.enquiry.name,
+      whatsappMessage: finalContent,
+    });
+
+    return this.prisma.enquiryMessage.update({
+      where: { id: messageId },
+      data: {
+        content: finalContent,
+        status: result.whatsappSent ? MessageStatus.SENT : MessageStatus.FAILED,
+        approvedByUserId: adminId,
+      },
+    });
+  }
+
+  async rejectDraft(messageId: string) {
+    const message = await this.prisma.enquiryMessage.findUnique({ where: { id: messageId } });
+    if (!message) throw new NotFoundException('Draft message not found.');
+    if (message.status !== MessageStatus.QUEUED) {
+      throw new ForbiddenException('This message has already been sent or discarded.');
+    }
+    await this.prisma.enquiryMessage.delete({ where: { id: messageId } });
+    return { rejected: true };
   }
 
   private async generateInitialTraining(clientId: string, enquiry: Enquiry) {

@@ -7,6 +7,7 @@ import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-
 import { PlatformSettingsService } from './platform-settings.service';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { UpdateDigestSettingsDto } from './dto/update-digest-settings.dto';
+import { UpdateEnquiryAutomationModeDto } from './dto/update-enquiry-automation-mode.dto';
 
 const MAX_FAVICON_BYTES = 1 * 1024 * 1024;
 
@@ -53,6 +54,23 @@ export class PlatformSettingsController {
       targetType: 'PlatformSettings',
       targetId: settings.id,
       metadata: { dailyDigestTime: dto.dailyDigestTime, dailyDigestWhatsappNumber: dto.dailyDigestWhatsappNumber ?? null },
+      ipAddress: req.ip,
+    });
+    return settings;
+  }
+
+  /** FULL_AUTONOMOUS (default) auto-sends every enquiry/sales-executive AI reply, same as
+   * today; DRAFT_APPROVE queues each one for admin review first — see EnquiryAutomationService. */
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Patch('admin/settings/enquiry-automation')
+  async updateEnquiryAutomationMode(@Body() dto: UpdateEnquiryAutomationModeDto, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
+    const settings = await this.settingsService.updateEnquiryAutomationMode(dto.enquiryAutomationMode);
+    await this.auditLogService.record({
+      adminId: admin.userId,
+      action: 'PLATFORM_ENQUIRY_AUTOMATION_MODE_UPDATED',
+      targetType: 'PlatformSettings',
+      targetId: settings.id,
+      metadata: { enquiryAutomationMode: dto.enquiryAutomationMode },
       ipAddress: req.ip,
     });
     return settings;

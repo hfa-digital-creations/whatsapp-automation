@@ -59,11 +59,17 @@ export class AiService {
     }
   }
 
-  /** Multi-turn chat used by the conversation engine. The caller supplies the full history each call. */
+  /**
+   * Multi-turn chat used by the conversation engine. The caller supplies the full history each
+   * call. `image`, when given, is attached only to the last (current) turn — Gemini is natively
+   * multimodal, so a photo just rides alongside the text in the same request; no separate vision
+   * call or extra cost beyond the same free tier already used for text.
+   */
   async chat(params: {
     system: string;
     history: Array<{ role: 'user' | 'assistant'; content: string }>;
     maxTokens?: number;
+    image?: { mimeType: string; data: string };
   }): Promise<string | null> {
     if (!this.client) return null;
     try {
@@ -73,9 +79,13 @@ export class AiService {
         generationConfig: { maxOutputTokens: Math.max(params.maxTokens ?? 400, 1536) },
       });
       // Gemini uses "model" instead of "assistant" for the AI's own turns.
-      const contents = params.history.map((m) => ({
+      const lastIndex = params.history.length - 1;
+      const contents = params.history.map((m, i) => ({
         role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }],
+        parts:
+          params.image && i === lastIndex
+            ? [{ text: m.content }, { inlineData: { mimeType: params.image.mimeType, data: params.image.data } }]
+            : [{ text: m.content }],
       }));
       const result = await model.generateContent({ contents });
       return this.extractText(result, 'chat()');

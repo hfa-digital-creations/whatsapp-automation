@@ -8,6 +8,7 @@ import { AuditLogService } from '../audit-log/audit-log.service';
 import { EnquiriesService } from './enquiries.service';
 import { CreateEnquiryDto } from './dto/create-enquiry.dto';
 import { UpdateEnquiryDto } from './dto/update-enquiry.dto';
+import { ApproveDraftDto } from '../automation/dto/approve-draft.dto';
 
 @Controller()
 export class EnquiriesController {
@@ -83,5 +84,40 @@ export class EnquiriesController {
   @Get('admin/enquiries/:id/messages')
   getMessages(@Param('id') id: string) {
     return this.enquiriesService.getMessages(id);
+  }
+
+  /** Approves a QUEUED draft reply (enquiryAutomationMode DRAFT_APPROVE) and sends it, optionally edited. */
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Post('admin/enquiries/messages/:messageId/approve')
+  async approveDraft(
+    @Param('messageId') messageId: string,
+    @Body() dto: ApproveDraftDto,
+    @CurrentUser() admin: AuthenticatedUser,
+    @Req() req: any,
+  ) {
+    const result = await this.enquiriesService.approveDraft(messageId, admin.userId, dto.editedContent);
+    await this.auditLogService.record({
+      adminId: admin.userId,
+      action: 'ENQUIRY_DRAFT_APPROVED',
+      targetType: 'EnquiryMessage',
+      targetId: messageId,
+      ipAddress: req.ip,
+    });
+    return result;
+  }
+
+  /** Discards a QUEUED draft reply without sending it. */
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Post('admin/enquiries/messages/:messageId/reject')
+  async rejectDraft(@Param('messageId') messageId: string, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
+    const result = await this.enquiriesService.rejectDraft(messageId);
+    await this.auditLogService.record({
+      adminId: admin.userId,
+      action: 'ENQUIRY_DRAFT_REJECTED',
+      targetType: 'EnquiryMessage',
+      targetId: messageId,
+      ipAddress: req.ip,
+    });
+    return result;
   }
 }

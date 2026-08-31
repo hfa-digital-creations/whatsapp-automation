@@ -159,6 +159,7 @@ model User {
   auditLogs         AuditLog[]       @relation("AuditLogAdmin")
   notifications     Notification[]
   approvedMessages  ConversationMessage[] @relation("ApprovedByUser")
+  approvedEnquiryMessages EnquiryMessage[] @relation("ApprovedByUserEnquiry")
 
   @@index([role, status])
 }
@@ -615,6 +616,13 @@ model EnquiryMessage {
   enquiry   Enquiry          @relation(fields: [enquiryId], references: [id], onDelete: Cascade)
   direction MessageDirection
   content   String
+  /// Defaults to SENT so every pre-existing row (all of which already went out) backfills
+  /// correctly; new AI-drafted rows are created QUEUED when enquiryAutomationMode is
+  /// DRAFT_APPROVE, then flip to SENT/FAILED once an admin approves them.
+  status    MessageStatus    @default(SENT)
+  automationGenerated Boolean @default(false)
+  approvedByUserId    String?
+  approvedByUser      User?  @relation("ApprovedByUserEnquiry", fields: [approvedByUserId], references: [id])
   createdAt DateTime         @default(now())
 
   @@index([enquiryId])
@@ -724,6 +732,11 @@ model PlatformSettings {
   /// "YYYY-MM-DD" (server-local) of the last date the report was actually sent —
   /// dedupe guard so the periodic check job never sends the same day's report twice.
   dailyDigestLastSentDate   String?
+  /// Platform-wide, since an enquiry has no single owning client the way a customer
+  /// conversation does. FULL_AUTONOMOUS (default) auto-sends every enquiry/sales-executive
+  /// AI reply as today; DRAFT_APPROVE queues each one for admin review first — same choice
+  /// Client.automationMode already offers per-client for their own customer conversations.
+  enquiryAutomationMode AutomationMode @default(FULL_AUTONOMOUS)
   updatedAt       DateTime @updatedAt
 }
 

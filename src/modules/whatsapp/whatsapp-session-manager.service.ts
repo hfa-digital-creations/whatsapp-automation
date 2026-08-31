@@ -37,7 +37,14 @@ export interface WhatsappMessageReceivedEvent {
   resolvedPhone: string | null;
   customerName: string | null;
   body: string;
+  /** Set when the inbound message is a photo — passed straight to Gemini alongside the text
+   * (see AiService.chat()'s `image` param) so replies can actually respond to what's shown. */
+  image: { mimeType: string; data: string } | null;
 }
+
+/** WhatsApp already compresses photos well under this — only guards against a pathological
+ * "expired media" or oversized-file edge case blowing up memory/token usage. */
+const MAX_INBOUND_IMAGE_BASE64_LENGTH = 8_000_000;
 
 // whatsapp-web.js has no first-class TypeScript types for our purposes; require keeps
 // this resilient to the package's own type gaps across versions.
@@ -196,12 +203,26 @@ export class WhatsappSessionManagerService implements OnModuleInit, OnModuleDest
       // must still target fromPhone unchanged, since that's the identifier WhatsApp
       // actually accepts for this contact (see sendMessage()'s "No LID for user" note).
       const resolvedPhone: string | null = typeof contact?.number === 'string' ? contact.number.replace(/\D/g, '') : null;
+
+      let image: { mimeType: string; data: string } | null = null;
+      if (msg.hasMedia && msg.type === 'image') {
+        try {
+          const media = await msg.downloadMedia();
+          if (media?.data && media.data.length <= MAX_INBOUND_IMAGE_BASE64_LENGTH) {
+            image = { mimeType: media.mimetype, data: media.data };
+          }
+        } catch (err: any) {
+          this.logger.warn(`Failed to download inbound image on ${sessionId}: ${err.message}`);
+        }
+      }
+
       this.events.emit(WHATSAPP_MESSAGE_RECEIVED_EVENT, {
         sessionId,
         fromPhone: (msg.from as string).replace('@c.us', ''),
         resolvedPhone,
         customerName: contact?.pushname ?? contact?.name ?? null,
         body: msg.body,
+        image,
       } satisfies WhatsappMessageReceivedEvent);
     });
 

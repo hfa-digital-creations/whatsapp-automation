@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { AutomationMode } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
 import { PrismaService } from '../../common/services/prisma.service';
@@ -56,5 +57,10 @@ export class PlatformSettingsService {
       where: { id: settings.id },
       data: { dailyDigestTime, dailyDigestWhatsappNumber: dailyDigestWhatsappNumber || null },
     });
+  }
+
+  async updateEnquiryAutomationMode(mode: AutomationMode) {
+    const settings = await this.get();
+    return this.prisma.platformSettings.update({ where: { id: settings.id }, data: { enquiryAutomationMode: mode } });
   }
 }

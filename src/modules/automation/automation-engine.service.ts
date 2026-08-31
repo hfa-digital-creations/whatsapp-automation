@@ -8,6 +8,7 @@ import { SubscriptionService } from '../subscription/subscription.service';
 import { KnowledgeExtractionService } from '../training/knowledge-extraction.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { WhatsappSessionManagerService, WHATSAPP_MESSAGE_RECEIVED_EVENT, WhatsappMessageReceivedEvent } from '../whatsapp/whatsapp-session-manager.service';
+import { inboundMessageContent } from '../../common/utils/whatsapp-message.util';
 import { ConversationsService } from './conversations.service';
 import { LeadExtractionService } from './lead-extraction.service';
 
@@ -71,6 +72,9 @@ RULES — these are non-negotiable:
   beats a friendlier-sounding one that strays from the approved knowledge.
 - If the customer is rude, harsh, or frustrated, stay calm and understanding — never match their tone, get
   defensive, or become curt. Acknowledge how they feel and keep helping.
+- If the customer sends a photo, look at it and respond helpfully to what it actually shows — but rule 1
+  still applies: describe what's visible, don't invent facts about pricing, availability, or policy for it
+  beyond what the approved knowledge above states.
 ${contactRule}${languageRule ? `\n${languageRule}` : ''}`;
 }
 
@@ -106,7 +110,11 @@ export class AutomationEngineService {
       event.fromPhone,
       event.customerName,
     );
-    await this.conversationsService.addMessage(conversation.id, MessageDirection.INBOUND, event.body);
+    await this.conversationsService.addMessage(
+      conversation.id,
+      MessageDirection.INBOUND,
+      inboundMessageContent(event.body, !!event.image),
+    );
 
     const subscriptionStatus = this.subscriptionService.computeStatus(client);
     if (subscriptionStatus === 'EXPIRED' || subscriptionStatus === 'NOT_ACTIVATED') {
@@ -187,7 +195,7 @@ export class AutomationEngineService {
     }));
 
     const [aiReply] = await Promise.all([
-      this.ai.chat({ system: systemPrompt, history: chatHistory }),
+      this.ai.chat({ system: systemPrompt, history: chatHistory, image: event.image ?? undefined }),
       this.leadExtraction.extractAndUpdate(client.id, conversation.id, chatHistory).catch((err) =>
         this.logger.warn(`Lead extraction failed for conversation ${conversation.id}: ${err.message}`),
       ),

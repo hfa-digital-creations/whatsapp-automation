@@ -1,13 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OnEvent } from '@nestjs/event-emitter';
-import { Enquiry, EnquiryStatus, MessageDirection } from '@prisma/client';
+import { AutomationMode, Enquiry, EnquiryStatus, MessageDirection, MessageStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { AiService } from '../../common/services/ai.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { WhatsappSessionManagerService, WHATSAPP_MESSAGE_RECEIVED_EVENT, WhatsappMessageReceivedEvent } from '../whatsapp/whatsapp-session-manager.service';
 import { PlansService } from '../plans/plans.service';
+import { PlatformSettingsService } from '../platform-settings/platform-settings.service';
 import { SYSTEM_WHATSAPP_SESSION_ID } from '../../common/constants';
+import { inboundMessageContent } from '../../common/utils/whatsapp-message.util';
 
 const PRODUCT_SYSTEM_PROMPT_BASE = `You are a warm, knowledgeable sales assistant for "HFA Digital Creations", the
 company behind "WhatsApp Automation" — a SaaS platform that lets businesses run their customer-facing WhatsApp
@@ -34,7 +36,9 @@ RULES:
 - If asked something you don't have a real answer for, say the team will follow up with specifics — never guess.
 - Gently guide interested prospects toward booking a call or signing up, but never be pushy or salesy.
 - Never say "As an AI" or similar — talk like a real, warm member of the sales team.
-- If they're rude or frustrated, stay calm and understanding — never match their tone.`;
+- If they're rude or frustrated, stay calm and understanding — never match their tone.
+- If they send a photo, look at it and respond to what it actually shows — never invent facts about it
+  beyond what's visible and what's stated above.`;
 
 /**
  * Used for anyone who messages the platform's own WhatsApp number directly — a personal
@@ -106,7 +110,9 @@ RULES:
 - Gently guide toward booking the free 30-minute discovery call or sharing their requirement in more detail,
   never pushy or salesy.
 - Never say "As an AI" or similar — talk like a real, warm member of the sales team.
-- If they're rude or frustrated, stay calm and understanding — never match their tone.`;
+- If they're rude or frustrated, stay calm and understanding — never match their tone.
+- If they send a photo, look at it and respond to what it actually shows — never invent facts about it
+  beyond what's visible and what's stated above.`;
 
 @Injectable()
 export class EnquiryAutomationService {
@@ -119,6 +125,7 @@ export class EnquiryAutomationService {
     private readonly notificationsService: NotificationsService,
     private readonly sessionManager: WhatsappSessionManagerService,
     private readonly plansService: PlansService,
+    private readonly platformSettingsService: PlatformSettingsService,
   ) {}
 
   private async buildSystemPrompt(enquiry: Enquiry): Promise<string> {
@@ -166,8 +173,49 @@ DOES above); if they've already told you something, don't ask again.`
     return `${HFA_SALES_SYSTEM_PROMPT_BASE}\n\nWHATSAPP AUTOMATION SAAS PRICING (only mention these real plans, never invent others):\n${plansText}`;
   }
 
-  private async recordMessage(enquiryId: string, direction: MessageDirection, content: string) {
-    await this.prisma.enquiryMessage.create({ data: { enquiryId, direction, content } });
+  private async recordMessage(
+    enquiryId: string,
+    direction: MessageDirection,
+    content: string,
+    opts: { status?: MessageStatus; automationGenerated?: boolean } = {},
+  ) {
+    await this.prisma.enquiryMessage.create({
+      data: { enquiryId, direction, content, status: opts.status ?? MessageStatus.SENT, automationGenerated: opts.automationGenerated ?? false },
+    });
+  }
+
+  /**
+   * Sends an AI-generated reply immediately (enquiryAutomationMode FULL_AUTONOMOUS, the
+   * default), or queues it as a draft for admin review (DRAFT_APPROVE) — same choice
+   * Client.automationMode already offers per-client for their own customer conversations
+   * (see AutomationEngineService.deliverReply), just platform-wide since an enquiry has no
+   * single owning client. Shared by both replyToEnquiry() and replyAsGeneralSalesExecutive().
+   */
+  private async deliverReply(enquiry: Enquiry, event: WhatsappMessageReceivedEvent, content: string) {
+    const settings = await this.platformSettingsService.get();
+    if (settings.enquiryAutomationMode === AutomationMode.FULL_AUTONOMOUS) {
+      const { sent } = await this.sessionManager.sendMessage(SYSTEM_WHATSAPP_SESSION_ID, event.fromPhone, content);
+      if (sent) {
+        await this.recordMessage(enquiry.id, MessageDirection.OUTBOUND, content, { automationGenerated: true, status: MessageStatus.SENT });
+      }
+      return;
+    }
+
+    await this.recordMessage(enquiry.id, MessageDirection.OUTBOUND, content, {
+      automationGenerated: true,
+      status: MessageStatus.QUEUED,
+    });
+    const admins = await this.prisma.user.findMany({ where: { role: { in: ['SUPER_ADMIN', 'ADMIN'] } } });
+    await Promise.all(
+      admins.map((admin) =>
+        this.notificationsService.notifyInApp(
+          admin.id,
+          'DRAFT_READY',
+          'A reply is ready for your review',
+          `${enquiry.name} messaged in — a draft reply is waiting for approval.`,
+        ),
+      ),
+    );
   }
 
   /**
@@ -259,7 +307,7 @@ Their message: ${enquiry.message ?? '(no message provided)'}`;
   }
 
   private async replyToEnquiry(enquiry: Enquiry, event: WhatsappMessageReceivedEvent) {
-    await this.recordMessage(enquiry.id, MessageDirection.INBOUND, event.body);
+    await this.recordMessage(enquiry.id, MessageDirection.INBOUND, inboundMessageContent(event.body, !!event.image));
 
     const [systemPrompt, history] = await Promise.all([
       this.buildSystemPrompt(enquiry),
@@ -270,14 +318,13 @@ Their message: ${enquiry.message ?? '(no message provided)'}`;
       content: m.content,
     }));
 
-    const reply = await this.ai.chat({ system: systemPrompt, history: chatHistory });
+    const reply = await this.ai.chat({ system: systemPrompt, history: chatHistory, image: event.image ?? undefined });
     if (!reply) {
       this.logger.warn(`AI reply generation failed for enquiry ${enquiry.id}.`);
       return;
     }
 
-    const { sent } = await this.sessionManager.sendMessage(SYSTEM_WHATSAPP_SESSION_ID, event.fromPhone, reply);
-    if (sent) await this.recordMessage(enquiry.id, MessageDirection.OUTBOUND, reply);
+    await this.deliverReply(enquiry, event, reply);
   }
 
   /**
@@ -307,7 +354,7 @@ Their message: ${enquiry.message ?? '(no message provided)'}`;
       );
     }
 
-    await this.recordMessage(enquiry.id, MessageDirection.INBOUND, event.body);
+    await this.recordMessage(enquiry.id, MessageDirection.INBOUND, inboundMessageContent(event.body, !!event.image));
 
     const [systemPrompt, history] = await Promise.all([
       this.buildGeneralSalesPrompt(),
@@ -318,14 +365,13 @@ Their message: ${enquiry.message ?? '(no message provided)'}`;
       content: m.content,
     }));
 
-    const reply = await this.ai.chat({ system: systemPrompt, history: chatHistory });
+    const reply = await this.ai.chat({ system: systemPrompt, history: chatHistory, image: event.image ?? undefined });
     if (!reply) {
       this.logger.warn(`General sales reply generation failed for enquiry ${enquiry.id}.`);
       return;
     }
 
-    const { sent } = await this.sessionManager.sendMessage(SYSTEM_WHATSAPP_SESSION_ID, event.fromPhone, reply);
-    if (sent) await this.recordMessage(enquiry.id, MessageDirection.OUTBOUND, reply);
+    await this.deliverReply(enquiry, event, reply);
   }
 
   /**

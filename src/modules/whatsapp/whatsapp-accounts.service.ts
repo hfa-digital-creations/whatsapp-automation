@@ -151,6 +151,7 @@ export class WhatsappAccountsService {
       resolvedPhone: dto.fromPhone.replace(/\D/g, ''),
       customerName: dto.customerName ?? null,
       body: dto.body,
+      image: null,
     });
 
     return { simulated: true };
