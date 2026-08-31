@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
-import { Button, Card, ErrorText, Input, Label, Spinner } from '../../components/ui';
+import { Button, Card, ErrorText, Input, Label, Select, Spinner } from '../../components/ui';
 
 interface PlatformSettings {
   faviconUrl: string | null;
   dailyDigestTime: string;
   dailyDigestWhatsappNumber: string | null;
+  enquiryAutomationMode: 'FULL_AUTONOMOUS' | 'DRAFT_APPROVE';
   updatedAt: string;
 }
 
@@ -55,6 +56,15 @@ export default function AdminSettings() {
   const digestSettingsMutation = useMutation({
     mutationFn: (payload: { dailyDigestTime: string; dailyDigestWhatsappNumber?: string }) =>
       api.patch('/admin/settings/digest', payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-platform-settings'] });
+      setError('');
+    },
+    onError: (err) => setError(apiErrorMessage(err)),
+  });
+
+  const enquiryModeMutation = useMutation({
+    mutationFn: (enquiryAutomationMode: string) => api.patch('/admin/settings/enquiry-automation', { enquiryAutomationMode }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-platform-settings'] });
       setError('');
@@ -138,6 +148,29 @@ export default function AdminSettings() {
               {digestSettingsMutation.isPending ? 'Saving...' : 'Save'}
             </Button>
           </form>
+        )}
+      </Card>
+
+      <Card className="max-w-lg p-6">
+        <h2 className="mb-1 text-sm font-bold text-slate-800 dark:text-slate-100">Enquiry &amp; WhatsApp Sales Auto-Reply Mode</h2>
+        <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
+          Applies to every AI reply on the system WhatsApp number — both landing-page enquiry conversations and
+          anyone messaging the number directly. Full Autonomous sends replies instantly, as today. Draft &amp;
+          Approve queues each AI-drafted reply for review in the Enquiries panel before it goes out.
+        </p>
+
+        {isLoading ? (
+          <Spinner />
+        ) : (
+          <Select
+            value={settings?.enquiryAutomationMode ?? 'FULL_AUTONOMOUS'}
+            onChange={(e) => enquiryModeMutation.mutate(e.target.value)}
+            disabled={enquiryModeMutation.isPending}
+            className="w-full sm:w-80"
+          >
+            <option value="FULL_AUTONOMOUS">Full Autonomous (AI auto-sends responses instantly)</option>
+            <option value="DRAFT_APPROVE">Draft &amp; Approve (Staff manually reviews AI drafted messages)</option>
+          </Select>
         )}
       </Card>
     </div>

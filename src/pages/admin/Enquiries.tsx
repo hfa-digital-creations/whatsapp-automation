@@ -17,6 +17,7 @@ interface Plan {
 
 interface EnquiryMessage {
   id: string; direction: 'INBOUND' | 'OUTBOUND'; content: string; createdAt: string;
+  status: 'QUEUED' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED'; automationGenerated: boolean;
 }
 
 const STATUSES = ['NEW', 'CONTACTED', 'INTERESTED', 'FOLLOW_UP', 'CONVERTED', 'NOT_INTERESTED', 'CLOSED'];
@@ -30,10 +31,31 @@ const TONE: Record<string, 'gray' | 'green' | 'red' | 'amber' | 'blue'> = {
  * an admin can see what's already been said without leaving the panel or opening WhatsApp.
  */
 function EnquiryConversation({ enquiryId }: { enquiryId: string }) {
+  const queryClient = useQueryClient();
+  const [editingDraft, setEditingDraft] = useState<{ id: string; content: string } | null>(null);
+
   const { data: messages, isLoading } = useQuery<EnquiryMessage[]>({
     queryKey: ['admin-enquiry-messages', enquiryId],
     queryFn: async () => (await api.get(`/admin/enquiries/${enquiryId}/messages`)).data.data,
     refetchInterval: 8000,
+  });
+
+  function invalidate() {
+    queryClient.invalidateQueries({ queryKey: ['admin-enquiry-messages', enquiryId] });
+  }
+
+  const approveMutation = useMutation({
+    mutationFn: ({ id, editedContent }: { id: string; editedContent?: string }) =>
+      api.post(`/admin/enquiries/messages/${id}/approve`, { editedContent }),
+    onSuccess: () => {
+      setEditingDraft(null);
+      invalidate();
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/admin/enquiries/messages/${id}/reject`),
+    onSuccess: invalidate,
   });
 
   if (isLoading) return <Spinner />;
@@ -46,12 +68,50 @@ function EnquiryConversation({ enquiryId }: { enquiryId: string }) {
           <div
             className={`max-w-[85%] rounded-xl px-3 py-2 text-xs ${
               m.direction === 'OUTBOUND'
-                ? 'bg-brand-500/15 text-brand-700 dark:text-brand-300'
+                ? m.status === 'QUEUED'
+                  ? 'border border-amber-500/30 bg-amber-500/10 text-amber-900 dark:text-amber-200'
+                  : 'bg-brand-500/15 text-brand-700 dark:text-brand-300'
                 : 'bg-slate-500/10 text-slate-700 dark:text-slate-300'
             }`}
           >
             <p className="whitespace-pre-wrap">{m.content}</p>
             <p className="mt-1 text-[10px] opacity-60">{new Date(m.createdAt).toLocaleString()}</p>
+
+            {m.status === 'QUEUED' && (
+              <div className="mt-2 space-y-1.5 border-t border-amber-500/20 pt-2">
+                <p className="text-[11px] font-bold text-amber-700 dark:text-amber-300">Draft Awaiting Approval</p>
+                {editingDraft?.id === m.id ? (
+                  <div className="space-y-1.5">
+                    <Input
+                      value={editingDraft.content}
+                      onChange={(e) => setEditingDraft({ id: m.id, content: e.target.value })}
+                      className="text-xs text-slate-900"
+                    />
+                    <div className="flex justify-end">
+                      <Button
+                        className="px-2.5 py-1 text-xs"
+                        disabled={approveMutation.isPending}
+                        onClick={() => approveMutation.mutate({ id: m.id, editedContent: editingDraft.content })}
+                      >
+                        Confirm &amp; Send
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button className="px-2.5 py-1 text-xs" disabled={approveMutation.isPending} onClick={() => approveMutation.mutate({ id: m.id })}>
+                      Approve &amp; Send
+                    </Button>
+                    <Button variant="secondary" className="px-2.5 py-1 text-xs" onClick={() => setEditingDraft({ id: m.id, content: m.content })}>
+                      Edit
+                    </Button>
+                    <Button variant="danger" className="px-2.5 py-1 text-xs" disabled={rejectMutation.isPending} onClick={() => rejectMutation.mutate(m.id)}>
+                      Reject
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       ))}
