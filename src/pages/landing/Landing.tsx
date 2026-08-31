@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
@@ -57,6 +57,116 @@ function formatDuration(plan: Plan) {
   return `${plan.durationValue} ${plan.durationValue === 1 ? label.replace(/s$/, '') : label}`;
 }
 
+interface EnquiryFormState {
+  name: string;
+  phone: string;
+  email: string;
+  businessName: string;
+  businessType: string;
+  message: string;
+  planId: string;
+}
+
+/**
+ * The single contact form, shared verbatim by the inline "#contact" section and the
+ * auto-popup — one source of state/validation so the two entry points can never drift.
+ */
+function EnquiryFormCard({
+  form,
+  setForm,
+  plans,
+  submitted,
+  onSubmit,
+  isPending,
+  isError,
+  error,
+}: {
+  form: EnquiryFormState;
+  setForm: (form: EnquiryFormState) => void;
+  plans?: Plan[];
+  submitted: boolean;
+  onSubmit: (e: FormEvent) => void;
+  isPending: boolean;
+  isError: boolean;
+  error: unknown;
+}) {
+  return (
+    <Card className="p-7 sm:p-8 backdrop-blur-2xl">
+      {submitted ? (
+        <div className="text-center py-6">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400">
+            <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <p className="text-base font-bold text-slate-900 dark:text-white">Demo Enquiry Received!</p>
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+            Thank you! We've received your request and our product specialist will reach out to you directly on WhatsApp shortly.
+          </p>
+        </div>
+      ) : (
+        <form onSubmit={onSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Your Full Name</label>
+              <Input placeholder="Rajesh Sharma" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">WhatsApp Phone Number</label>
+              <Input placeholder="+919876543210" required value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Work Email</label>
+              <Input type="email" required placeholder="rajesh@company.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Company / Brand Name</label>
+              <Input placeholder="Sharma Enterprises" value={form.businessName} onChange={(e) => setForm({ ...form, businessName: e.target.value })} />
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Industry</label>
+            <Select value={form.businessType} onChange={(e) => setForm({ ...form, businessType: e.target.value })}>
+              <option value="">Select your industry</option>
+              {INDUSTRIES.map((i) => <option key={i} value={i}>{i}</option>)}
+              <option value="Other">Other</option>
+            </Select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Which Plan Interests You?</label>
+            <Select required value={form.planId} onChange={(e) => setForm({ ...form, planId: e.target.value })}>
+              <option value="">Select a plan...</option>
+              {plans?.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.title} — {formatPrice(p)} / {formatDuration(p)}
+                </option>
+              ))}
+            </Select>
+            <p className="mt-1 text-[11px] text-slate-400">
+              Our AI will focus the conversation on this plan and ask exactly what's needed to set your account up on it.
+            </p>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Requirement Notes</label>
+            <Textarea
+              placeholder="Tell us about your volume, customer inquiries, and automation goals..."
+              rows={3}
+              value={form.message}
+              onChange={(e) => setForm({ ...form, message: e.target.value })}
+            />
+          </div>
+          {isError && <ErrorText>{apiErrorMessage(error)}</ErrorText>}
+          <Button type="submit" className="w-full py-2.5 text-xs font-bold" disabled={isPending}>
+            {isPending ? 'Sending Inquiry...' : 'Submit Demo Request →'}
+          </Button>
+        </form>
+      )}
+    </Card>
+  );
+}
+
 export default function Landing() {
   const { theme, toggle } = useTheme();
   const { data: plans, isLoading } = useQuery<Plan[]>({
@@ -76,8 +186,68 @@ export default function Landing() {
     enquiryMutation.mutate();
   }
 
+  // Auto-popup the contact form shortly after arrival — once per browser session (not
+  // every visit/navigation), and never once they've already submitted or dismissed it.
+  const [showPopup, setShowPopup] = useState(false);
+  useEffect(() => {
+    let alreadyShown = true;
+    try {
+      alreadyShown = sessionStorage.getItem('enquiryPopupShown') === '1';
+    } catch {
+      // sessionStorage unavailable (private browsing, etc.) — skip the popup rather than risk a crash.
+      return;
+    }
+    if (alreadyShown) return;
+    const timer = setTimeout(() => {
+      setShowPopup(true);
+      try {
+        sessionStorage.setItem('enquiryPopupShown', '1');
+      } catch {
+        // best-effort only
+      }
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (submitted) setShowPopup(false);
+  }, [submitted]);
+
   return (
     <div className="relative min-h-screen text-slate-900 dark:text-slate-100 overflow-x-hidden selection:bg-brand-500 selection:text-white">
+      {/* Auto-popup contact form — shown once per session shortly after arrival */}
+      {showPopup && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm animate-glass-entrance"
+          onClick={() => setShowPopup(false)}
+        >
+          <div className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setShowPopup(false)}
+              aria-label="Close"
+              className="absolute -top-3 -right-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white text-slate-600 shadow-lg transition-colors hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+            >
+              ✕
+            </button>
+            <div className="mb-3 text-center">
+              <h3 className="text-lg font-extrabold text-white">Get a Free Walkthrough</h3>
+              <p className="text-xs text-slate-300">Tell us about your business and we'll reach out on WhatsApp shortly.</p>
+            </div>
+            <EnquiryFormCard
+              form={form}
+              setForm={setForm}
+              plans={plans}
+              submitted={submitted}
+              onSubmit={handleSubmit}
+              isPending={enquiryMutation.isPending}
+              isError={enquiryMutation.isError}
+              error={enquiryMutation.error}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Ambient background glow mesh */}
       <div className="glass-bg-mesh">
         <div className="glass-blob-1" />
@@ -293,79 +463,16 @@ export default function Landing() {
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Our sales engineering team will demonstrate AI automation tailored to your business</p>
         </div>
 
-        <Card className="p-7 sm:p-8 backdrop-blur-2xl">
-          {submitted ? (
-            <div className="text-center py-6">
-              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400">
-                <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                </svg>
-              </div>
-              <p className="text-base font-bold text-slate-900 dark:text-white">Demo Enquiry Received!</p>
-              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-                Thank you! We've received your request and our product specialist will reach out to you directly on WhatsApp shortly.
-              </p>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Your Full Name</label>
-                  <Input placeholder="Rajesh Sharma" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">WhatsApp Phone Number</label>
-                  <Input placeholder="+919876543210" required value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Work Email</label>
-                  <Input type="email" required placeholder="rajesh@company.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Company / Brand Name</label>
-                  <Input placeholder="Sharma Enterprises" value={form.businessName} onChange={(e) => setForm({ ...form, businessName: e.target.value })} />
-                </div>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Industry</label>
-                <Select value={form.businessType} onChange={(e) => setForm({ ...form, businessType: e.target.value })}>
-                  <option value="">Select your industry</option>
-                  {INDUSTRIES.map((i) => <option key={i} value={i}>{i}</option>)}
-                  <option value="Other">Other</option>
-                </Select>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Which Plan Interests You?</label>
-                <Select required value={form.planId} onChange={(e) => setForm({ ...form, planId: e.target.value })}>
-                  <option value="">Select a plan...</option>
-                  {plans?.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.title} — {formatPrice(p)} / {formatDuration(p)}
-                    </option>
-                  ))}
-                </Select>
-                <p className="mt-1 text-[11px] text-slate-400">
-                  Our AI will focus the conversation on this plan and ask exactly what's needed to set your account up on it.
-                </p>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-semibold text-slate-600 dark:text-slate-300">Requirement Notes</label>
-                <Textarea
-                  placeholder="Tell us about your volume, customer inquiries, and automation goals..."
-                  rows={3}
-                  value={form.message}
-                  onChange={(e) => setForm({ ...form, message: e.target.value })}
-                />
-              </div>
-              {enquiryMutation.isError && <ErrorText>{apiErrorMessage(enquiryMutation.error)}</ErrorText>}
-              <Button type="submit" className="w-full py-2.5 text-xs font-bold" disabled={enquiryMutation.isPending}>
-                {enquiryMutation.isPending ? 'Sending Inquiry...' : 'Submit Demo Request &rarr;'}
-              </Button>
-            </form>
-          )}
-        </Card>
+        <EnquiryFormCard
+          form={form}
+          setForm={setForm}
+          plans={plans}
+          submitted={submitted}
+          onSubmit={handleSubmit}
+          isPending={enquiryMutation.isPending}
+          isError={enquiryMutation.isError}
+          error={enquiryMutation.error}
+        />
       </section>
 
       {/* FAQs */}

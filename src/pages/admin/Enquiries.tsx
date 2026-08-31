@@ -121,6 +121,7 @@ function EnquiryConversation({ enquiryId }: { enquiryId: string }) {
 
 export default function AdminEnquiries() {
   const queryClient = useQueryClient();
+  const [source, setSource] = useState<'LANDING_PAGE' | 'WHATSAPP'>('LANDING_PAGE');
   const [status, setStatus] = useState('');
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -130,8 +131,8 @@ export default function AdminEnquiries() {
   const [error, setError] = useState('');
 
   const { data: enquiries, isLoading } = useQuery<Enquiry[]>({
-    queryKey: ['admin-enquiries', status],
-    queryFn: async () => (await api.get('/admin/enquiries', { params: { status: status || undefined } })).data.data,
+    queryKey: ['admin-enquiries', source, status],
+    queryFn: async () => (await api.get('/admin/enquiries', { params: { source, status: status || undefined } })).data.data,
   });
 
   const { data: plans } = useQuery<Plan[]>({
@@ -213,13 +214,24 @@ export default function AdminEnquiries() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-          Prospective Leads &amp; Enquiries
+          {source === 'LANDING_PAGE' ? 'Prospective Leads & Enquiries' : 'Direct WhatsApp Messages'}
         </h1>
         <p className="text-xs text-slate-500 dark:text-slate-400">
-          Every new enquiry automatically gets an AI-written email + WhatsApp introduction, and the AI keeps
-          replying on WhatsApp as they respond — view the live conversation, or send a manual follow-up any time.
+          {source === 'LANDING_PAGE'
+            ? "Enquiries submitted through the landing page's contact form. Every new one automatically gets an AI-written email + WhatsApp introduction, and the AI keeps replying on WhatsApp as they respond — view the live conversation, or send a manual follow-up any time."
+            : "Anyone who messaged the platform's own WhatsApp number directly, without submitting the landing page form — the AI answers as a general HFA Digital Creations sales executive. Kept separate from website enquiries above."}
         </p>
       </div>
+
+      {/* Source Tabs — where the lead came from */}
+      <Tabs
+        tabs={[
+          { id: 'LANDING_PAGE', label: '🌐 Website Enquiries' },
+          { id: 'WHATSAPP', label: '💬 WhatsApp Messages' },
+        ]}
+        activeTab={source}
+        onChange={(tab) => { setSource(tab as 'LANDING_PAGE' | 'WHATSAPP'); setStatus(''); setPage(1); }}
+      />
 
       {/* Smooth Filter Tabs */}
       <div className="flex flex-wrap items-center justify-between gap-4">
