@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
-import { Badge, Button, Card, ErrorText, Input, Pagination, Select, Spinner } from '../../components/ui';
+import { Badge, Button, Card, ErrorText, Input, Pagination, Select, Spinner, Tabs } from '../../components/ui';
 
 const PAGE_SIZE = 25;
 
@@ -14,7 +14,7 @@ interface Plan {
 interface ClientRow {
   id: string;
   businessName: string;
-  user: { email: string; phone: string | null; status: string };
+  user: { email: string; phone: string | null; status: string; deletedAt?: string | null };
   plan: { title: string } | null;
   subscriptionStatus: string;
   remainingDays: number | null;
@@ -29,12 +29,80 @@ const STATUS_TONE: Record<string, 'gray' | 'green' | 'red' | 'amber' | 'blue'> =
   DELETED: 'gray',
 };
 
+/** Deleted clients — kept out of the main directory entirely (see ClientsService.list()'s
+ *  default status exclusion) and shown only here, mirroring the Trash pattern used
+ *  elsewhere in the admin panel (Offer Campaigns, Enquiries). Restore is available inline;
+ *  no permanent-delete here — hard-deleting a client cascades through WhatsApp accounts,
+ *  conversations, and payment history, too high-stakes to offer without being asked for it. */
+function ClientsTrashPanel({ onError }: { onError: (msg: string) => void }) {
+  const queryClient = useQueryClient();
+
+  const { data, isLoading } = useQuery<{ items: ClientRow[]; total: number }>({
+    queryKey: ['admin-clients-trash'],
+    queryFn: async () => (await api.get('/admin/clients', { params: { status: 'DELETED', take: 100 } })).data.data,
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: (id: string) => api.patch(`/admin/clients/${id}/restore`),
+    onSuccess: () => {
+      onError('');
+      queryClient.invalidateQueries({ queryKey: ['admin-clients-trash'] });
+      queryClient.invalidateQueries({ queryKey: ['admin-clients'] });
+    },
+    onError: (err) => onError(apiErrorMessage(err)),
+  });
+
+  if (isLoading) return <Spinner />;
+
+  return (
+    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 animate-tab-content">
+      {data?.items.map((c) => (
+        <Card key={c.id} className="p-6 flex flex-col justify-between opacity-80">
+          <div>
+            <div className="flex items-start justify-between gap-2">
+              <p className="font-bold text-slate-800 dark:text-slate-100">{c.businessName}</p>
+              <Badge tone="gray">Trashed</Badge>
+            </div>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{c.user.email}</p>
+            {c.user.phone && <p className="text-xs font-mono text-slate-400">{c.user.phone}</p>}
+            {c.user.deletedAt && (
+              <p className="mt-2 text-[11px] text-slate-400">Deleted {new Date(c.user.deletedAt).toLocaleString()}</p>
+            )}
+          </div>
+          <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-3 dark:border-white/5">
+            <Button
+              variant="secondary"
+              className="px-3 py-1.5 text-xs"
+              disabled={restoreMutation.isPending}
+              onClick={() => restoreMutation.mutate(c.id)}
+            >
+              ↺ Restore
+            </Button>
+            <Link
+              to={`/admin/clients/${c.id}`}
+              className="inline-flex items-center gap-1 rounded-xl border border-brand-500/20 bg-brand-500/10 px-3 py-1.5 text-xs font-semibold text-brand-600 transition-colors hover:bg-brand-500/20 dark:text-brand-400"
+            >
+              <span>View</span>
+              <span>&rarr;</span>
+            </Link>
+          </div>
+        </Card>
+      ))}
+      {data?.items.length === 0 && (
+        <div className="col-span-full py-12 text-center text-sm text-slate-400">Trash is empty.</div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminClients() {
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState<'clients' | 'trash'>('clients');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [page, setPage] = useState(1);
+  const [trashError, setTrashError] = useState('');
 
   const { data, isLoading } = useQuery<{ items: ClientRow[]; total: number }>({
     queryKey: ['admin-clients', search, status, page],
@@ -182,7 +250,23 @@ export default function AdminClients() {
         </Card>
       )}
 
-      {/* Main Glass Table Card */}
+      {/* Directory / Trash Tabs */}
+      <Tabs
+        tabs={[
+          { id: 'clients', label: 'Client Directory' },
+          { id: 'trash', label: '🗑️ Trash' },
+        ]}
+        activeTab={activeTab}
+        onChange={(tab) => setActiveTab(tab as 'clients' | 'trash')}
+      />
+
+      {activeTab === 'trash' ? (
+        <Card className="p-6">
+          <ErrorText>{trashError}</ErrorText>
+          <ClientsTrashPanel onError={setTrashError} />
+        </Card>
+      ) : (
+      /* Main Glass Table Card */
       <Card className="p-6">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
@@ -215,7 +299,6 @@ export default function AdminClients() {
               <option value="ACTIVE">Active</option>
               <option value="BLOCKED">Blocked (Deactivated)</option>
               <option value="EXPIRED">Expired</option>
-              <option value="DELETED">Deleted (Trash)</option>
             </Select>
           </div>
           {data && (
@@ -299,6 +382,7 @@ export default function AdminClients() {
 
         <Pagination page={page} totalPages={totalPages} onPageChange={setPage} className="mt-5" />
       </Card>
+      )}
     </div>
   );
 }
