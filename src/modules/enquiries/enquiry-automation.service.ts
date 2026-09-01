@@ -224,6 +224,10 @@ DOES above); if they've already told you something, don't ask again.`
    * caller: never blocks the public enquiry form's response on an AI call + WhatsApp send.
    */
   async sendInitialOutreach(enquiry: Enquiry) {
+    if (!(await this.platformSettingsService.get()).adminAutoReplyEnabled) {
+      this.logger.log(`Skipping automatic enquiry outreach for ${enquiry.id}: admin auto-reply is disabled.`);
+      return;
+    }
     if (!this.ai.isConfigured) {
       this.logger.warn(`Skipping automatic enquiry outreach for ${enquiry.id}: AI provider not configured.`);
       return;
@@ -271,17 +275,22 @@ Their message: ${enquiry.message ?? '(no message provided)'}`;
   }
 
   /**
-   * Handles every inbound message on the platform's own WhatsApp number. Two paths:
-   * a prospect who came through the enquiry form (matched by phone, still open) continues
-   * their plan-focused WhatsApp Automation conversation via replyToEnquiry(); anyone else —
-   * a direct message from someone who never filled out the form — gets picked up as a new
-   * or continuing lead and answered by replyAsGeneralSalesExecutive(), which represents all
-   * of HFA Digital Creations' services, not just this one SaaS product. Nobody who messages
-   * this number goes unanswered.
+   * Handles every inbound message on the platform's own WhatsApp number, as long as the
+   * admin hasn't switched off auto-reply entirely (PlatformSettings.adminAutoReplyEnabled).
+   * Two paths when it's on: a prospect who came through the enquiry form (matched by phone,
+   * still open) continues their plan-focused WhatsApp Automation conversation via
+   * replyToEnquiry(); anyone else — a direct message from someone who never filled out the
+   * form — gets picked up as a new or continuing lead and answered by
+   * replyAsGeneralSalesExecutive(), which represents all of HFA Digital Creations' services,
+   * not just this one SaaS product.
    */
   @OnEvent(WHATSAPP_MESSAGE_RECEIVED_EVENT)
   async handleIncomingMessage(event: WhatsappMessageReceivedEvent) {
     if (event.sessionId !== SYSTEM_WHATSAPP_SESSION_ID) return;
+    if (!(await this.platformSettingsService.get()).adminAutoReplyEnabled) {
+      this.logger.log('Skipping WhatsApp auto-reply: disabled in Admin Settings.');
+      return;
+    }
     if (!this.ai.isConfigured) {
       this.logger.warn('Skipping WhatsApp auto-reply: AI provider not configured.');
       return;

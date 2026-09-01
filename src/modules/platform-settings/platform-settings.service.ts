@@ -59,8 +59,15 @@ export class PlatformSettingsService {
     });
   }
 
-  async updateEnquiryAutomationMode(mode: AutomationMode) {
+  /** Either field may be omitted — whichever is provided gets updated, the other is left as-is. */
+  async updateEnquiryAutomationSettings(params: { enquiryAutomationMode?: AutomationMode; adminAutoReplyEnabled?: boolean }) {
     const settings = await this.get();
-    return this.prisma.platformSettings.update({ where: { id: settings.id }, data: { enquiryAutomationMode: mode } });
+    return this.prisma.platformSettings.update({
+      where: { id: settings.id },
+      data: {
+        enquiryAutomationMode: params.enquiryAutomationMode,
+        adminAutoReplyEnabled: params.adminAutoReplyEnabled,
+      },
+    });
   }
 }

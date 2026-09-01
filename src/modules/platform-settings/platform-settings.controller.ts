@@ -59,18 +59,23 @@ export class PlatformSettingsController {
     return settings;
   }
 
-  /** FULL_AUTONOMOUS (default) auto-sends every enquiry/sales-executive AI reply, same as
-   * today; DRAFT_APPROVE queues each one for admin review first — see EnquiryAutomationService. */
+  /**
+   * `adminAutoReplyEnabled` is the master on/off switch for the system WhatsApp number's
+   * auto-reply — off means inbound messages there get no automatic response at all (not
+   * even a queued draft). `enquiryAutomationMode` only matters while it's on: FULL_AUTONOMOUS
+   * (default) auto-sends every reply, DRAFT_APPROVE queues each one for admin review first.
+   * See EnquiryAutomationService. Either field may be sent alone.
+   */
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
   @Patch('admin/settings/enquiry-automation')
-  async updateEnquiryAutomationMode(@Body() dto: UpdateEnquiryAutomationModeDto, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
-    const settings = await this.settingsService.updateEnquiryAutomationMode(dto.enquiryAutomationMode);
+  async updateEnquiryAutomationSettings(@Body() dto: UpdateEnquiryAutomationModeDto, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
+    const settings = await this.settingsService.updateEnquiryAutomationSettings(dto);
     await this.auditLogService.record({
       adminId: admin.userId,
-      action: 'PLATFORM_ENQUIRY_AUTOMATION_MODE_UPDATED',
+      action: 'PLATFORM_ENQUIRY_AUTOMATION_SETTINGS_UPDATED',
       targetType: 'PlatformSettings',
       targetId: settings.id,
-      metadata: { enquiryAutomationMode: dto.enquiryAutomationMode },
+      metadata: { enquiryAutomationMode: dto.enquiryAutomationMode, adminAutoReplyEnabled: dto.adminAutoReplyEnabled },
       ipAddress: req.ip,
     });
     return settings;

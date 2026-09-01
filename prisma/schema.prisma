@@ -748,6 +748,12 @@ model PlatformSettings {
   /// AI reply as today; DRAFT_APPROVE queues each one for admin review first — same choice
   /// Client.automationMode already offers per-client for their own customer conversations.
   enquiryAutomationMode AutomationMode @default(FULL_AUTONOMOUS)
+  /// Master on/off switch for the system WhatsApp number's auto-reply (both the enquiry-form
+  /// conversation and the general HFA sales-executive one). When false, inbound messages on
+  /// that number are left completely untouched — no send, no queued draft either — for when
+  /// an admin wants to handle everything on that number by hand. enquiryAutomationMode above
+  /// only matters while this is true.
+  adminAutoReplyEnabled Boolean @default(true)
   updatedAt       DateTime @updatedAt
 }
 
