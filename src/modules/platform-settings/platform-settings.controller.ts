@@ -41,6 +41,22 @@ export class PlatformSettingsController {
     return settings;
   }
 
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Post('admin/settings/logo')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 } }))
+  async uploadLogo(@UploadedFile() file: Express.Multer.File, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
+    if (!file) throw new BadRequestException('No file uploaded.');
+    const settings = await this.settingsService.uploadLogo(file);
+    await this.auditLogService.record({
+      adminId: admin.userId,
+      action: 'PLATFORM_LOGO_UPDATED',
+      targetType: 'PlatformSettings',
+      targetId: settings.id,
+      ipAddress: req.ip,
+    });
+    return settings;
+  }
+
   /** The time (24h HH:mm, server-local) the daily digest becomes visible each day — shared by admin
    * and client panels alike — plus the WhatsApp number (optional) the admin's full report gets pushed
    * to at that time. Blank number disables the WhatsApp send; the in-app digest cards are unaffected. */

@@ -10,6 +10,14 @@ const FAVICON_RULES: Record<string, { maxBytes: number }> = {
   png: { maxBytes: 1 * 1024 * 1024 },
 };
 
+const LOGO_RULES: Record<string, { maxBytes: number }> = {
+  png: { maxBytes: 2 * 1024 * 1024 },
+  jpg: { maxBytes: 2 * 1024 * 1024 },
+  jpeg: { maxBytes: 2 * 1024 * 1024 },
+  webp: { maxBytes: 2 * 1024 * 1024 },
+  svg: { maxBytes: 2 * 1024 * 1024 },
+};
+
 @Injectable()
 export class PlatformSettingsService {
   constructor(
@@ -48,6 +56,29 @@ export class PlatformSettingsService {
     return this.prisma.platformSettings.update({
       where: { id: settings.id },
       data: { faviconUrl: `/api/uploads/platform/${storedFileName}` },
+    });
+  }
+
+  async uploadLogo(file: Express.Multer.File) {
+    const ext = file.originalname.split('.').pop()?.toLowerCase() ?? '';
+    const rule = LOGO_RULES[ext];
+    if (!rule) throw new BadRequestException('Unsupported file type. Allowed: .png, .jpg, .jpeg, .webp, or .svg.');
+    if (file.size > rule.maxBytes) throw new BadRequestException('Logo must be under 2MB.');
+
+    const dir = path.join(this.uploadRoot, 'platform');
+    fs.mkdirSync(dir, { recursive: true });
+    // Clear any previously stored logo first — it may have had a different extension,
+    // and leaving it behind would just be an orphaned file nobody links to anymore.
+    for (const existingExt of Object.keys(LOGO_RULES)) {
+      fs.rmSync(path.join(dir, `logo.${existingExt}`), { force: true });
+    }
+    const storedFileName = `logo.${ext}`;
+    fs.writeFileSync(path.join(dir, storedFileName), file.buffer);
+
+    const settings = await this.get();
+    return this.prisma.platformSettings.update({
+      where: { id: settings.id },
+      data: { logoUrl: `/api/uploads/platform/${storedFileName}` },
     });
   }
 

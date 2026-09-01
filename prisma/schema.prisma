@@ -734,6 +734,9 @@ model ClientBranding {
 model PlatformSettings {
   id              String   @id @default(uuid())
   faviconUrl      String?
+  /// The product logo shown in the admin sidebar, landing page header, and login page —
+  /// distinct from faviconUrl (browser tab icon). Null falls back to the built-in mark.
+  logoUrl         String?
   /// 24-hour "HH:mm" server-local time — the daily digest (admin + client) withholds
   /// today's figures until this time, so nobody sees a half-finished day's numbers.
   dailyDigestTime String   @default("09:00")
