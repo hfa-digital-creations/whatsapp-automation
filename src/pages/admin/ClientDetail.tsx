@@ -79,7 +79,7 @@ export default function AdminClientDetail() {
   });
 
   const statusMutation = useMutation({
-    mutationFn: (action: 'block' | 'unblock' | 'delete') => api.patch(`/admin/clients/${id}/${action}`),
+    mutationFn: (action: 'block' | 'unblock' | 'delete' | 'restore') => api.patch(`/admin/clients/${id}/${action}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-client', id] }),
     onError: (err) => setError(apiErrorMessage(err)),
   });
@@ -189,32 +189,61 @@ export default function AdminClientDetail() {
             </div>
           </dl>
 
-          <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4 dark:border-white/5">
-            <Select value={activatePlanId} onChange={(e) => setActivatePlanId(e.target.value)} className="w-full sm:w-auto max-w-[200px]">
-              <option value="">{client.plan ? `Keep: ${client.plan.title}` : 'Select plan'}</option>
-              {plans?.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
-            </Select>
-            <Button onClick={() => activateMutation.mutate()} disabled={activateMutation.isPending} className="text-xs">
-              {client.user.status === 'ACTIVE' ? 'Extend Plan' : 'Activate Client'}
-            </Button>
-            {client.user.status === 'BLOCKED' ? (
-              <Button variant="secondary" className="text-xs" onClick={() => statusMutation.mutate('unblock')}>Unblock</Button>
-            ) : (
-              <Button variant="secondary" className="text-xs" onClick={() => statusMutation.mutate('block')}>Block</Button>
-            )}
-            <Button variant="danger" className="text-xs" onClick={() => statusMutation.mutate('delete')}>Delete</Button>
-            <Button variant="secondary" className="text-xs" onClick={() => resetPasswordMutation.mutate()} disabled={resetPasswordMutation.isPending}>
-              {resetSent ? 'Link Sent!' : 'Reset Password'}
-            </Button>
-            <Button
-              variant="secondary"
-              className="text-xs"
-              disabled={loginOtpMutation.isPending}
-              onClick={() => loginOtpMutation.mutate(!client.loginOtpEnabled)}
-            >
-              {client.loginOtpEnabled ? 'Disable OTP' : 'Enable OTP'}
-            </Button>
-          </div>
+          {client.user.status === 'DELETED' ? (
+            <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4 dark:border-white/5">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                This account is in the trash — its data is kept, but the client can't log in.
+              </p>
+              <Button
+                variant="secondary"
+                className="text-xs"
+                disabled={statusMutation.isPending}
+                onClick={() => statusMutation.mutate('restore')}
+              >
+                {statusMutation.isPending ? 'Restoring...' : '↺ Restore from Trash'}
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4 dark:border-white/5">
+              <Select value={activatePlanId} onChange={(e) => setActivatePlanId(e.target.value)} className="w-full sm:w-auto max-w-[200px]">
+                <option value="">{client.plan ? `Keep: ${client.plan.title}` : 'Select plan'}</option>
+                {plans?.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+              </Select>
+              <Button onClick={() => activateMutation.mutate()} disabled={activateMutation.isPending} className="text-xs">
+                {client.user.status === 'ACTIVE' ? 'Extend Plan' : 'Activate Client'}
+              </Button>
+              {client.user.status === 'BLOCKED' ? (
+                <Button variant="secondary" className="text-xs" onClick={() => statusMutation.mutate('unblock')}>Unblock</Button>
+              ) : (
+                <Button variant="secondary" className="text-xs" onClick={() => statusMutation.mutate('block')}>Block</Button>
+              )}
+              {/*
+                Two-stage delete: the first click deactivates (blocks) the account — reversible,
+                nothing lost. Only a second click, once it's already deactivated, actually moves
+                it to the trash (soft-delete). Prevents an accidental single click from trashing
+                a live client account outright.
+              */}
+              <Button
+                variant="danger"
+                className="text-xs"
+                disabled={statusMutation.isPending}
+                onClick={() => statusMutation.mutate(client.user.status === 'BLOCKED' ? 'delete' : 'block')}
+              >
+                {client.user.status === 'BLOCKED' ? 'Delete (Move to Trash)' : 'Delete (Deactivate First)'}
+              </Button>
+              <Button variant="secondary" className="text-xs" onClick={() => resetPasswordMutation.mutate()} disabled={resetPasswordMutation.isPending}>
+                {resetSent ? 'Link Sent!' : 'Reset Password'}
+              </Button>
+              <Button
+                variant="secondary"
+                className="text-xs"
+                disabled={loginOtpMutation.isPending}
+                onClick={() => loginOtpMutation.mutate(!client.loginOtpEnabled)}
+              >
+                {client.loginOtpEnabled ? 'Disable OTP' : 'Enable OTP'}
+              </Button>
+            </div>
+          )}
         </Card>
 
         {/* Record Payment Card */}

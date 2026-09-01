@@ -213,8 +213,9 @@ export default function AdminClients() {
               <option value="">All statuses</option>
               <option value="PENDING">Pending</option>
               <option value="ACTIVE">Active</option>
-              <option value="BLOCKED">Blocked</option>
+              <option value="BLOCKED">Blocked (Deactivated)</option>
               <option value="EXPIRED">Expired</option>
+              <option value="DELETED">Deleted (Trash)</option>
             </Select>
           </div>
           {data && (
