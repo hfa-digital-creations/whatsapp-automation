@@ -95,11 +95,13 @@ export class ClientsService {
     };
   }
 
+  /** Trashed (DELETED) clients never appear in the default directory view — only when
+   *  `status: 'DELETED'` is explicitly requested (the admin panel's separate Trash tab). */
   async list(params: { search?: string; status?: UserStatus; skip?: number; take?: number }) {
     const { search, status, skip = 0, take = 25 } = params;
     const where: Prisma.ClientWhereInput = {
       user: {
-        status,
+        status: status ?? { not: UserStatus.DELETED },
         OR: search
           ? [
               { email: { contains: search, mode: 'insensitive' } },
