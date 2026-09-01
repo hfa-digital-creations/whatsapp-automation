@@ -81,6 +81,11 @@ export class ClientsController {
     return this.clientsService.softDelete(id, admin.userId, req.ip);
   }
 
+  @Patch(':id/restore')
+  restore(@Param('id') id: string, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
+    return this.clientsService.restore(id, admin.userId, req.ip);
+  }
+
   @Post(':id/reset-password')
   resetPassword(@Param('id') id: string, @CurrentUser() admin: AuthenticatedUser, @Req() req: any) {
     return this.clientsService.resetPassword(id, admin.userId, req.ip);

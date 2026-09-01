@@ -399,6 +399,23 @@ export class ClientsService {
     return { deleted: true };
   }
 
+  /** Undoes softDelete() — restores to BLOCKED (the state right before trashing), not
+   *  straight back to ACTIVE, so the admin still makes a deliberate Unblock decision
+   *  rather than a restored account silently regaining live access. */
+  async restore(clientId: string, adminId: string, ipAddress?: string) {
+    const client = await this.prisma.client.findUnique({ where: { id: clientId }, include: { user: true } });
+    if (!client) throw new NotFoundException('Client not found.');
+    if (client.user.status !== UserStatus.DELETED) {
+      throw new BadRequestException('This client is not in the trash.');
+    }
+    await this.prisma.user.update({
+      where: { id: client.userId },
+      data: { status: UserStatus.BLOCKED, deletedAt: null },
+    });
+    await this.auditLogService.record({ adminId, action: 'CLIENT_RESTORED', targetType: 'Client', targetId: clientId, ipAddress });
+    return { restored: true };
+  }
+
   /** Admin-triggered reset for a locked-out client — delivered the same way activation credentials are. */
   async resetPassword(clientId: string, adminId: string, ipAddress?: string) {
     const client = await this.prisma.client.findUnique({ where: { id: clientId }, include: { user: true } });
