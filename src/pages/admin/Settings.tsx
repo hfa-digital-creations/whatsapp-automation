@@ -171,14 +171,17 @@ export default function AdminSettings() {
                 aria-checked={settings?.adminAutoReplyEnabled ?? true}
                 disabled={enquiryModeMutation.isPending}
                 onClick={() => enquiryModeMutation.mutate({ adminAutoReplyEnabled: !(settings?.adminAutoReplyEnabled ?? true) })}
-                className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
-                  settings?.adminAutoReplyEnabled ?? true ? 'bg-brand-500' : 'bg-slate-300 dark:bg-slate-600'
-                }`}
+                className={`${settings?.adminAutoReplyEnabled ?? true ? 'bg-brand-500' : 'bg-slate-300 dark:bg-slate-600'}
+                  relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full
+                  border-2 border-transparent transition-colors duration-200 ease-in-out
+                  focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2
+                  disabled:cursor-not-allowed disabled:opacity-50`}
               >
                 <span
-                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                    settings?.adminAutoReplyEnabled ?? true ? 'translate-x-[22px]' : 'translate-x-0.5'
-                  }`}
+                  aria-hidden="true"
+                  className={`${settings?.adminAutoReplyEnabled ?? true ? 'translate-x-5' : 'translate-x-0'}
+                    pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow
+                    ring-0 transition duration-200 ease-in-out`}
                 />
               </button>
               <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
