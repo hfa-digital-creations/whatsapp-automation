@@ -505,12 +505,13 @@ export default function Landing() {
           elements — a CSS animation on `transform` replaces the whole property rather than
           merging with it, so combining both on one element wipes out the centering offset. */}
       <div className="fixed bottom-5 left-1/2 z-40 -translate-x-1/2 md:hidden">
-        <a
-          href="#contact"
+        <button
+          type="button"
+          onClick={() => setShowPopup(true)}
           className="animate-float glass-glow-brand block rounded-full bg-gradient-to-r from-brand-600 via-orange-500 to-amber-500 px-6 py-3 text-sm font-bold text-white shadow-xl shadow-brand-500/40 border border-white/30"
         >
           Book Now &rarr;
-        </a>
+        </button>
       </div>
 
       {/* Footer */}
