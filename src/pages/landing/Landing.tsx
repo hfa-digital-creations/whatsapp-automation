@@ -216,7 +216,7 @@ export default function Landing() {
   }, [submitted]);
 
   return (
-    <div className="relative min-h-screen text-slate-900 dark:text-slate-100 overflow-x-hidden selection:bg-brand-500 selection:text-white">
+    <div className="relative min-h-screen bg-slate-100/80 text-slate-900 dark:bg-slate-950 dark:text-slate-100 overflow-x-clip selection:bg-brand-500 selection:text-white">
       {/* Auto-popup contact form — shown once per session shortly after arrival */}
       {showPopup && (
         <div
