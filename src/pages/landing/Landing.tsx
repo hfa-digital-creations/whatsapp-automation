@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { api, apiErrorMessage } from '../../lib/api';
 import { useTheme } from '../../context/ThemeContext';
+import { usePlatformLogo } from '../../hooks/usePlatformLogo';
 import { Badge, Button, Card, ErrorText, Input, Select, Textarea } from '../../components/ui';
 
 interface Plan {
@@ -169,6 +170,7 @@ function EnquiryFormCard({
 
 export default function Landing() {
   const { theme, toggle } = useTheme();
+  const logoUrl = usePlatformLogo();
   const { data: plans, isLoading } = useQuery<Plan[]>({
     queryKey: ['public-plans'],
     queryFn: async () => (await api.get('/public/plans')).data.data,
@@ -259,11 +261,15 @@ export default function Landing() {
       <header className="sticky top-0 z-50 border-b border-slate-200/60 bg-white/60 backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/60">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 sm:px-6 py-3.5">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-brand-600 to-amber-400 text-white shadow-md shadow-brand-500/20">
-              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2z" />
-              </svg>
-            </div>
+            {logoUrl ? (
+              <img src={logoUrl} alt="Logo" className="h-9 w-9 rounded-xl object-cover shadow-md" />
+            ) : (
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-brand-600 to-amber-400 text-white shadow-md shadow-brand-500/20">
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2z" />
+                </svg>
+              </div>
+            )}
             <span className="text-base font-extrabold tracking-tight bg-gradient-to-r from-brand-600 via-orange-500 to-amber-500 bg-clip-text text-transparent">
               WA Automation
             </span>

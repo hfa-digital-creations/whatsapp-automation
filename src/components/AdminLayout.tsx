@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import { usePlatformLogo } from '../hooks/usePlatformLogo';
 import { Button } from './ui';
 import { NotificationBell } from './NotificationBell';
 import { ParticlesBackground } from './ParticlesBackground';
@@ -124,6 +125,7 @@ export function AdminLayout() {
   const { theme, toggle } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+  const logoUrl = usePlatformLogo();
 
   return (
     <div className="relative h-screen bg-slate-100/80 text-slate-900 dark:bg-slate-950 dark:text-slate-100 flex overflow-hidden">
@@ -141,11 +143,15 @@ export function AdminLayout() {
       {/* Desktop Frosted Glass Sidebar */}
       <aside className="hidden w-64 shrink-0 flex-col glass-sidebar z-30 md:flex md:sticky md:top-0 md:h-screen">
         <div className="flex h-16 items-center gap-3 px-6 border-b border-slate-200/50 dark:border-white/5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-brand-600 to-amber-400 text-white shadow-lg shadow-brand-500/30 ring-2 ring-white/20">
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2z" />
-            </svg>
-          </div>
+          {logoUrl ? (
+            <img src={logoUrl} alt="Logo" className="h-9 w-9 rounded-xl object-cover shadow-lg ring-2 ring-white/20" />
+          ) : (
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-brand-600 to-amber-400 text-white shadow-lg shadow-brand-500/30 ring-2 ring-white/20">
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2z" />
+              </svg>
+            </div>
+          )}
           <div>
             <div className="text-base font-extrabold tracking-tight bg-gradient-to-r from-brand-600 via-orange-500 to-amber-500 bg-clip-text text-transparent">
               WA Auto

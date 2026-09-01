@@ -5,6 +5,7 @@ import { Button, Card, ErrorText, Input, Label, Select, Spinner } from '../../co
 
 interface PlatformSettings {
   faviconUrl: string | null;
+  logoUrl: string | null;
   dailyDigestTime: string;
   dailyDigestWhatsappNumber: string | null;
   enquiryAutomationMode: 'FULL_AUTONOMOUS' | 'DRAFT_APPROVE';
@@ -15,6 +16,7 @@ interface PlatformSettings {
 export default function AdminSettings() {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const logoFileInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState('');
 
   const { data: settings, isLoading } = useQuery<PlatformSettings>({
@@ -45,7 +47,31 @@ export default function AdminSettings() {
     if (file) uploadMutation.mutate(file);
   }
 
+  const logoUploadMutation = useMutation({
+    mutationFn: (file: File) => {
+      const body = new FormData();
+      body.append('file', file);
+      return api.post('/admin/settings/logo', body);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-platform-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['public-platform-settings'] });
+      setError('');
+      if (logoFileInputRef.current) logoFileInputRef.current.value = '';
+    },
+    onError: (err) => {
+      setError(apiErrorMessage(err));
+      if (logoFileInputRef.current) logoFileInputRef.current.value = '';
+    },
+  });
+
+  function handleLogoFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) logoUploadMutation.mutate(file);
+  }
+
   const faviconPreviewUrl = settings?.faviconUrl ? `${settings.faviconUrl}?v=${encodeURIComponent(settings.updatedAt)}` : null;
+  const logoPreviewUrl = settings?.logoUrl ? `${settings.logoUrl}?v=${encodeURIComponent(settings.updatedAt)}` : null;
 
   const [digestTime, setDigestTime] = useState('09:00');
   const [digestWhatsappNumber, setDigestWhatsappNumber] = useState('');
@@ -80,6 +106,41 @@ export default function AdminSettings() {
         <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white">Platform Settings</h1>
         <p className="text-xs text-slate-500 dark:text-slate-400">Site-wide settings that apply across the landing page, admin panel, and client panel.</p>
       </div>
+
+      <Card className="max-w-lg p-6">
+        <h2 className="mb-1 text-sm font-bold text-slate-800 dark:text-slate-100">Product Logo</h2>
+        <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
+          Shown in the admin sidebar, landing page header, and login page. PNG, JPG, WEBP, or SVG, under 2MB.
+        </p>
+
+        {isLoading ? (
+          <Spinner />
+        ) : (
+          <div className="flex items-center gap-4">
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-slate-200/60 bg-white/40 dark:border-white/10 dark:bg-white/[0.02]">
+              {logoPreviewUrl ? (
+                <img src={logoPreviewUrl} alt="Current logo" className="h-full w-full rounded-xl object-cover" />
+              ) : (
+                <span className="text-center text-[10px] text-slate-400">None set</span>
+              )}
+            </div>
+            <div>
+              <Button type="button" onClick={() => logoFileInputRef.current?.click()} disabled={logoUploadMutation.isPending} className="text-xs">
+                {logoUploadMutation.isPending ? 'Uploading...' : settings?.logoUrl ? 'Change Logo' : 'Upload Logo'}
+              </Button>
+              <input
+                ref={logoFileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/svg+xml,.png,.jpg,.jpeg,.webp,.svg"
+                onChange={handleLogoFileChange}
+                className="hidden"
+              />
+            </div>
+          </div>
+        )}
+
+        <ErrorText>{error}</ErrorText>
+      </Card>
 
       <Card className="max-w-lg p-6">
         <h2 className="mb-1 text-sm font-bold text-slate-800 dark:text-slate-100">Browser Tab Icon (Favicon)</h2>

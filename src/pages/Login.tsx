@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { usePlatformLogo } from '../hooks/usePlatformLogo';
 import { Button, Card, ErrorText, Input, Label } from '../components/ui';
 
 export default function Login() {
   const { auth, login, verifyOtp } = useAuth();
+  const logoUrl = usePlatformLogo();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -64,11 +66,15 @@ export default function Login() {
 
       <div className="relative z-10 w-full max-w-md animate-glass-entrance">
         <div className="mb-8 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-tr from-brand-600 to-amber-400 text-white shadow-lg shadow-brand-500/30 ring-4 ring-white/10">
-            <svg className="h-7 w-7" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2z" />
-            </svg>
-          </div>
+          {logoUrl ? (
+            <img src={logoUrl} alt="Logo" className="mx-auto mb-3 h-12 w-12 rounded-2xl object-cover shadow-lg ring-4 ring-white/10" />
+          ) : (
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-tr from-brand-600 to-amber-400 text-white shadow-lg shadow-brand-500/30 ring-4 ring-white/10">
+              <svg className="h-7 w-7" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2z" />
+              </svg>
+            </div>
+          )}
           <h1 className="text-2xl font-extrabold tracking-tight bg-gradient-to-r from-brand-400 via-orange-300 to-amber-300 bg-clip-text text-transparent">
             WA Automation
           </h1>
