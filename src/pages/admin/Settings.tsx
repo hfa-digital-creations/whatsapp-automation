@@ -8,6 +8,7 @@ interface PlatformSettings {
   dailyDigestTime: string;
   dailyDigestWhatsappNumber: string | null;
   enquiryAutomationMode: 'FULL_AUTONOMOUS' | 'DRAFT_APPROVE';
+  adminAutoReplyEnabled: boolean;
   updatedAt: string;
 }
 
@@ -64,7 +65,8 @@ export default function AdminSettings() {
   });
 
   const enquiryModeMutation = useMutation({
-    mutationFn: (enquiryAutomationMode: string) => api.patch('/admin/settings/enquiry-automation', { enquiryAutomationMode }),
+    mutationFn: (payload: { enquiryAutomationMode?: string; adminAutoReplyEnabled?: boolean }) =>
+      api.patch('/admin/settings/enquiry-automation', payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-platform-settings'] });
       setError('');
@@ -152,25 +154,51 @@ export default function AdminSettings() {
       </Card>
 
       <Card className="max-w-lg p-6">
-        <h2 className="mb-1 text-sm font-bold text-slate-800 dark:text-slate-100">Enquiry &amp; WhatsApp Sales Auto-Reply Mode</h2>
+        <h2 className="mb-1 text-sm font-bold text-slate-800 dark:text-slate-100">Admin WhatsApp Auto-Reply</h2>
         <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
-          Applies to every AI reply on the system WhatsApp number — both landing-page enquiry conversations and
-          anyone messaging the number directly. Full Autonomous sends replies instantly, as today. Draft &amp;
-          Approve queues each AI-drafted reply for review in the Enquiries panel before it goes out.
+          Covers every automatic AI reply on the system WhatsApp number — both landing-page enquiry conversations
+          and anyone messaging the number directly. Turn it off to handle everything on that number by hand.
         </p>
 
         {isLoading ? (
           <Spinner />
         ) : (
-          <Select
-            value={settings?.enquiryAutomationMode ?? 'FULL_AUTONOMOUS'}
-            onChange={(e) => enquiryModeMutation.mutate(e.target.value)}
-            disabled={enquiryModeMutation.isPending}
-            className="w-full sm:w-80"
-          >
-            <option value="FULL_AUTONOMOUS">Full Autonomous (AI auto-sends responses instantly)</option>
-            <option value="DRAFT_APPROVE">Draft &amp; Approve (Staff manually reviews AI drafted messages)</option>
-          </Select>
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={settings?.adminAutoReplyEnabled ?? true}
+                disabled={enquiryModeMutation.isPending}
+                onClick={() => enquiryModeMutation.mutate({ adminAutoReplyEnabled: !(settings?.adminAutoReplyEnabled ?? true) })}
+                className={`relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-50 ${
+                  settings?.adminAutoReplyEnabled ?? true ? 'bg-brand-500' : 'bg-slate-300 dark:bg-slate-600'
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                    settings?.adminAutoReplyEnabled ?? true ? 'translate-x-[22px]' : 'translate-x-0.5'
+                  }`}
+                />
+              </button>
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Auto-reply is {settings?.adminAutoReplyEnabled ?? true ? 'Enabled' : 'Disabled'}
+              </span>
+            </div>
+
+            <div className={settings?.adminAutoReplyEnabled ?? true ? '' : 'opacity-50'}>
+              <Label>Mode (while enabled)</Label>
+              <Select
+                value={settings?.enquiryAutomationMode ?? 'FULL_AUTONOMOUS'}
+                onChange={(e) => enquiryModeMutation.mutate({ enquiryAutomationMode: e.target.value })}
+                disabled={enquiryModeMutation.isPending || !(settings?.adminAutoReplyEnabled ?? true)}
+                className="w-full sm:w-80"
+              >
+                <option value="FULL_AUTONOMOUS">Full Autonomous (AI auto-sends responses instantly)</option>
+                <option value="DRAFT_APPROVE">Draft &amp; Approve (Staff manually reviews AI drafted messages)</option>
+              </Select>
+            </div>
+          </div>
         )}
       </Card>
     </div>
