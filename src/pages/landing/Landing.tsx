@@ -499,6 +499,15 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* Mobile Floating "Book Now" CTA — the nav's Book Demo link is hidden below md, so this
+          keeps a persistent, always-reachable booking action in view on phones. */}
+      <a
+        href="#contact"
+        className="animate-float glass-glow-brand fixed bottom-5 left-1/2 z-40 -translate-x-1/2 rounded-full bg-gradient-to-r from-brand-600 via-orange-500 to-amber-500 px-6 py-3 text-sm font-bold text-white shadow-xl shadow-brand-500/40 border border-white/30 md:hidden"
+      >
+        Book Now &rarr;
+      </a>
+
       {/* Footer */}
       <footer className="relative z-10 border-t border-slate-200/60 py-10 dark:border-white/10 bg-white/40 dark:bg-slate-950/40 backdrop-blur-xl">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 text-xs text-slate-500 dark:text-slate-400 sm:flex-row">
