@@ -500,13 +500,18 @@ export default function Landing() {
       </section>
 
       {/* Mobile Floating "Book Now" CTA — the nav's Book Demo link is hidden below md, so this
-          keeps a persistent, always-reachable booking action in view on phones. */}
-      <a
-        href="#contact"
-        className="animate-float glass-glow-brand fixed bottom-5 left-1/2 z-40 -translate-x-1/2 rounded-full bg-gradient-to-r from-brand-600 via-orange-500 to-amber-500 px-6 py-3 text-sm font-bold text-white shadow-xl shadow-brand-500/40 border border-white/30 md:hidden"
-      >
-        Book Now &rarr;
-      </a>
+          keeps a persistent, always-reachable booking action in view on phones.
+          Centering (-translate-x-1/2) and the float bob animation are kept on separate
+          elements — a CSS animation on `transform` replaces the whole property rather than
+          merging with it, so combining both on one element wipes out the centering offset. */}
+      <div className="fixed bottom-5 left-1/2 z-40 -translate-x-1/2 md:hidden">
+        <a
+          href="#contact"
+          className="animate-float glass-glow-brand block rounded-full bg-gradient-to-r from-brand-600 via-orange-500 to-amber-500 px-6 py-3 text-sm font-bold text-white shadow-xl shadow-brand-500/40 border border-white/30"
+        >
+          Book Now &rarr;
+        </a>
+      </div>
 
       {/* Footer */}
       <footer className="relative z-10 border-t border-slate-200/60 py-10 dark:border-white/10 bg-white/40 dark:bg-slate-950/40 backdrop-blur-xl">
