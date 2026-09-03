@@ -13,6 +13,7 @@ interface Contact {
   leadStatus: string;
   lastMessageAt: string | null;
   collectedInfo: Record<string, string> | null;
+  aiAutomationEnabled: boolean;
 }
 
 const FIELD_LABELS: Record<string, string> = {
@@ -49,6 +50,20 @@ export default function ClientContacts() {
     queryKey: ['client-contacts'],
     queryFn: async () => (await api.get('/client/contacts')).data.data,
     refetchInterval: 6000,
+  });
+
+  // Per-contact automation is its own gated feature — the column is simply absent when it's off.
+  const { data: features } = useQuery<Record<string, boolean>>({
+    queryKey: ['client-features'],
+    queryFn: async () => (await api.get('/client/features')).data.data,
+  });
+  const automationToggleEnabled = features?.CONTACT_AUTOMATION_TOGGLE === true;
+
+  const automationMutation = useMutation({
+    mutationFn: ({ conversationId, enabled }: { conversationId: string; enabled: boolean }) =>
+      api.patch(`/client/conversations/${conversationId}/automation`, { enabled }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['client-contacts'] }),
+    onError: (err) => setError(apiErrorMessage(err)),
   });
 
   function invalidateAll() {
@@ -156,6 +171,7 @@ export default function ClientContacts() {
                   <th className="py-3 pr-4">Lead Status</th>
                   <th className="py-3 pr-4">Captured Details</th>
                   <th className="py-3 pr-4">Last Message</th>
+                  {automationToggleEnabled && <th className="py-3 pr-4">AI Auto-Reply</th>}
                   <th className="py-3 text-right">Actions</th>
                 </tr>
               </thead>
@@ -193,6 +209,34 @@ export default function ClientContacts() {
                     <td className="py-3.5 pr-4 text-xs text-slate-400 font-medium">
                       {c.lastMessageAt ? new Date(c.lastMessageAt).toLocaleString() : '—'}
                     </td>
+                    {automationToggleEnabled && (
+                      <td className="py-3.5 pr-4">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={c.aiAutomationEnabled}
+                            disabled={automationMutation.isPending}
+                            onClick={() => automationMutation.mutate({ conversationId: c.conversationId, enabled: !c.aiAutomationEnabled })}
+                            className={`${c.aiAutomationEnabled ? 'bg-brand-500' : 'bg-slate-300 dark:bg-slate-600'}
+                              relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full
+                              border-2 border-transparent transition-colors duration-200 ease-in-out
+                              focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2
+                              disabled:cursor-not-allowed disabled:opacity-50`}
+                          >
+                            <span
+                              aria-hidden="true"
+                              className={`${c.aiAutomationEnabled ? 'translate-x-4' : 'translate-x-0'}
+                                pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow
+                                ring-0 transition duration-200 ease-in-out`}
+                            />
+                          </button>
+                          <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                            {c.aiAutomationEnabled ? 'On' : 'Off'}
+                          </span>
+                        </div>
+                      </td>
+                    )}
                     <td className="py-3.5 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         <Button
@@ -227,7 +271,7 @@ export default function ClientContacts() {
                 ))}
                 {contacts?.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-sm text-slate-400">
+                    <td colSpan={automationToggleEnabled ? 7 : 6} className="py-12 text-center text-sm text-slate-400">
                       No contacts recorded yet — contacts populate automatically as customers message your lines.
                     </td>
                   </tr>
