@@ -500,6 +500,11 @@ model CustomerConversation {
   assignedToUserId  String?
   preferredLanguage String?
   lastMessageAt     DateTime?
+  /// Per-contact override of AI auto-reply, gated behind the CONTACT_AUTOMATION_TOGGLE
+  /// feature — off means inbound messages from this one customer get no automatic
+  /// reply at all (not even a queued draft), letting a client hand-handle a specific
+  /// person while every other contact keeps auto-replying normally.
+  aiAutomationEnabled Boolean @default(true)
   // Soft delete only — moves the contact/conversation to the client's Trash.
   // Never touches the real WhatsApp account/contact; a new inbound message
   // from the same customer clears this automatically (see findOrCreate).

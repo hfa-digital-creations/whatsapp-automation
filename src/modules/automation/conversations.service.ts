@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 import { MessageDirection, MessageStatus } from '@prisma/client';
 import { PrismaService } from '../../common/services/prisma.service';
 import { WhatsappSessionManagerService } from '../whatsapp/whatsapp-session-manager.service';
+import { FeaturesService } from '../features/features.service';
 
 const MAX_LANGUAGE_LENGTH = 60;
 
@@ -10,6 +11,7 @@ export class ConversationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sessionManager: WhatsappSessionManagerService,
+    private readonly featuresService: FeaturesService,
   ) {}
 
   async findOrCreate(clientId: string, whatsappAccountId: string, customerPhone: string, customerName: string | null) {
@@ -96,6 +98,7 @@ export class ConversationsService {
       leadStatus: c.leadStatus,
       lastMessageAt: c.lastMessageAt,
       collectedInfo: (c.leads[0]?.collectedInfo as Record<string, string> | undefined) ?? null,
+      aiAutomationEnabled: c.aiAutomationEnabled,
     }));
   }
 
@@ -142,6 +145,24 @@ export class ConversationsService {
     await this.getOwnedConversation(clientId, conversationId);
     await this.prisma.customerConversation.update({ where: { id: conversationId }, data: { deletedAt: null } });
     return { restored: true };
+  }
+
+  /**
+   * Gated separately from the rest of Contacts/Conversations (which only require
+   * WHATSAPP_AUTOMATION) — CONTACT_AUTOMATION_TOGGLE is its own feature, checked here
+   * rather than via @RequireFeature, since that decorator overrides rather than adds to
+   * the controller's class-level requirement.
+   */
+  async setAutomationEnabled(clientId: string, conversationId: string, enabled: boolean) {
+    const allowed = await this.featuresService.isFeatureEnabled(clientId, 'CONTACT_AUTOMATION_TOGGLE');
+    if (!allowed) {
+      throw new ForbiddenException('This feature (CONTACT_AUTOMATION_TOGGLE) is not enabled for your account.');
+    }
+    await this.getOwnedConversation(clientId, conversationId);
+    return this.prisma.customerConversation.update({
+      where: { id: conversationId },
+      data: { aiAutomationEnabled: enabled },
+    });
   }
 
   /** Permanent delete is only reachable via Trash — never directly from the Contacts/Conversations list. */

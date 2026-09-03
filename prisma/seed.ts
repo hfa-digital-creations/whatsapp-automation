@@ -19,6 +19,7 @@ const FEATURES = [
   { code: 'ANALYTICS', name: 'Analytics' },
   { code: 'WHATSAPP_ACCOUNT_REMOVAL', name: 'Client Can Remove WhatsApp Accounts' },
   { code: 'DAILY_DIGEST', name: 'Daily Digest' },
+  { code: 'CONTACT_AUTOMATION_TOGGLE', name: 'Per-Contact Automation Toggle' },
 ];
 
 async function main() {

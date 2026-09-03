@@ -125,6 +125,11 @@ export class AutomationEngineService {
     const automationEnabled = await this.featuresService.isFeatureEnabled(client.id, 'WHATSAPP_AUTOMATION');
     if (!automationEnabled) return;
 
+    if (!conversation.aiAutomationEnabled) {
+      this.logger.log(`Skipping auto-reply for conversation ${conversation.id}: disabled for this contact.`);
+      return;
+    }
+
     if (!this.ai.isConfigured) {
       this.logger.warn('Skipping auto-reply: AI provider not configured.');
       return;

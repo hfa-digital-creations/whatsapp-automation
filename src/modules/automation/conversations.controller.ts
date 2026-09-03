@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RequireFeature } from '../../common/decorators/require-feature.decorator';
@@ -8,6 +8,7 @@ import { ConversationsService } from './conversations.service';
 import { SendMessageDto } from './dto/send-message.dto';
 import { ApproveDraftDto } from './dto/approve-draft.dto';
 import { BulkIdsDto } from './dto/bulk-ids.dto';
+import { SetContactAutomationDto } from './dto/set-contact-automation.dto';
 
 @Controller('client/conversations')
 @Roles(UserRole.CLIENT)
@@ -93,5 +94,11 @@ export class ContactsController {
   @Get()
   list(@CurrentUser() user: AuthenticatedUser) {
     return this.conversationsService.listContacts(user.clientId!);
+  }
+
+  /** Separately feature-gated (CONTACT_AUTOMATION_TOGGLE) inside the service — see setAutomationEnabled. */
+  @Patch(':id/automation')
+  setAutomation(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string, @Body() dto: SetContactAutomationDto) {
+    return this.conversationsService.setAutomationEnabled(user.clientId!, id, dto.enabled);
   }
 }

@@ -19,7 +19,11 @@ const BASE_CLIENT = {
 
 // Language already resolved by default so existing behavioral tests exercise
 // post-gate logic directly — the gate itself has its own dedicated tests below.
-const CONVERSATION: { id: string; preferredLanguage: string | null } = { id: 'conversation-1', preferredLanguage: 'English' };
+const CONVERSATION: { id: string; preferredLanguage: string | null; aiAutomationEnabled: boolean } = {
+  id: 'conversation-1',
+  preferredLanguage: 'English',
+  aiAutomationEnabled: true,
+};
 
 describe('AutomationEngineService.handleIncomingMessage', () => {
   function makeService(opts: {
@@ -89,6 +93,12 @@ describe('AutomationEngineService.handleIncomingMessage', () => {
 
   it('does not generate a reply when the WHATSAPP_AUTOMATION feature is disabled for the client', async () => {
     const { service, ai } = makeService({ automationEnabled: false });
+    await service.handleIncomingMessage(EVENT);
+    expect(ai.chat).not.toHaveBeenCalled();
+  });
+
+  it('does not generate a reply when automation is disabled for this specific contact', async () => {
+    const { service, ai } = makeService({ conversation: { aiAutomationEnabled: false } });
     await service.handleIncomingMessage(EVENT);
     expect(ai.chat).not.toHaveBeenCalled();
   });
